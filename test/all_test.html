@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+
+<html>
+  <head>
+  	<meta charset="utf-8">
+    <link rel=stylesheet href="style/docs.css">
+    <link rel="stylesheet" href="style/mode_test.css">
+    <link rel="stylesheet" href="packages/comid/codemirror.css">
+  	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>all_test</title>
+    <style type="text/css">
+      .ok {color: #090;}
+      .fail {color: #e00;}
+      .error {color: #c90;}
+      .done {font-weight: bold;}
+      #progress {
+        background: #45d;
+        color: white;
+        text-shadow: 0 0 1px #45d, 0 0 2px #45d, 0 0 3px #45d;
+        font-weight: bold;
+        white-space: pre;
+      }
+      #testground {
+        visibility: hidden;
+      }
+      #testground.offscreen {
+        visibility: visible;
+        position: absolute;
+        left: -10000px;
+        top: -10000px;
+      }
+      .CodeMirror { border: 1px solid black; }
+    </style>
+  </head>
+
+  <body>
+    <article>
+    <p id="text">Test</p>
+    <div id=output></div>
+    <div id=testground></div>
+    <!-- To run tests in javascript the dart code must be in its -->
+    <!-- own file and the browser dependency must be included. -->
+    <!-- To see the results, call useHtmlConfiguration() in main() -->
+    <script type="application/dart" src="all_test.dart"></script>
+    <script src="packages/browser/dart.js"></script>
+    </article>
+  </body>
+</html>

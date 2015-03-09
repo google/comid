@@ -1,0 +1,26 @@
+#!/bin/bash
+
+PORT=39876
+CHROMIUM=~/Desktop/dart/chromium/Chromium.app/Contents/MacOS/Chromium
+REMOTE="--remote-debugging-port=$PORT"
+DATA=--user-data-dir=/Users/messick/.dartium
+
+export DART_FLAGS="--checked --profile_period=100 --profile_depth=23 --coverage_dir=/tmp/cc"
+
+cd ../test
+$CHROMIUM $REMOTE $DART_FLAGS $DATA all_test.html &
+
+COV=~/src/coverage-master
+PRT=--port=$PORT
+ROOT="`pwd`/../packages"
+SDK_ROOT="$DART_SDK"
+
+cd $COV
+dart bin/collect_coverage.dart -t3000 $PRT -o ../coverage.json
+
+dart bin/format_coverage.dart -l -v --package-root="$ROOT" --sdk-root="$SDK_ROOT" -i ../coverage.json >../coverage.txt
+
+#killall Chromium
+
+genhtml ../coverage.txt --output-directory ../out.dir --ignore-errors=source #--no-source
+open "../out.dir/Users/messick/Google Drive/comid/packages/comid/src/index.html"

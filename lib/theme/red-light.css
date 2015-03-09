@@ -1,0 +1,50 @@
+/* Inspired by the RedLight MV from f(x) */
+
+.cm-s-red-light.CodeMirror { background: #212121; color: #ddd; }
+.cm-s-red-light .CodeMirror-selected { background: #FFAB91 !important; }
+
+.cm-s-red-light .CodeMirror-gutters { background: #181818; border-right: 1px solid #f1183c; }
+.cm-s-red-light .CodeMirror-guttermarker { color: white; }
+.cm-s-red-light .CodeMirror-guttermarker-subtle { color: #d0d0d0; }
+.cm-s-red-light .CodeMirror-linenumber { color: #9e9e9e; }
+.cm-s-red-light .CodeMirror-cursor { border-left: 1px solid white !important; }
+
+.cm-s-red-light .cm-keyword {  color: #FF5252; } // if, else, return, etc
+.cm-s-red-light .cm-atom { color: #FC0; }
+.cm-s-red-light .cm-number { color:  #FFEE98; }
+.cm-s-red-light .cm-def { color: #a03e72; }
+.cm-s-red-light span.cm-variable-2, .cm-s-vibrant span.cm-tag { color: #FFC66D }
+.cm-s-red-light span.cm-variable-3, .cm-s-vibrant span.cm-def { color: #FFC66D }
+.cm-s-red-light .cm-operator { color: #888; }
+.cm-s-red-light .cm-comment { color: gray; font-weight: bold; }
+.cm-s-red-light .cm-string { color:  #00C853 } //A5C25C
+.cm-s-red-light .cm-string-2 { color: red }
+.cm-s-red-light .cm-meta { color: #D8FA3C; }
+.cm-s-red-light .cm-builtin { color: #FF4081; } // void, String
+.cm-s-red-light .cm-tag { color: #a03e72; }
+.cm-s-red-light .cm-attribute { color: #a03e72; }
+.cm-s-red-light .cm-header { color: #FF6400; }
+.cm-s-red-light .cm-hr { color: #AEAEAE; }
+.cm-s-red-light .cm-link { color: blue; }
+.cm-s-red-light .cm-error { border-bottom: 1px solid red; }
+
+.cm-s-red-light .CodeMirror-activeline-background {background: #27282E !important;}
+.cm-s-red-light .CodeMirror-matchingbracket {outline:1px solid grey; color:white !important;}
+
+.CodeMirror-hints { border: 1px solid #ff1744; font-size: 100%; background: grey }
+.CodeMirror-hint { background: #444; color: #f5f5f5; border-radius: 0px }
+li.CodeMirror-hint-active { background: #333; color: #FF6400 }
+
+.CodeMirror-hints::-webkit-scrollbar-track {
+  -webkit-box-shadow: inset 0 0 6px rgba(0,0,0,0.3);
+  background-color: #545454;
+}
+
+.CodeMirror-hints::-webkit-scrollbar {
+  width: 6px;
+  background-color: #545454;
+}
+
+.CodeMirror-hints::-webkit-scrollbar-thumb {
+  background-color: #000000;
+}

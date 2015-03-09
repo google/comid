@@ -1,0 +1,26 @@
+Testing coverage
+
+2014-12-20 37.4% (1735/4634) lines
+2015-01-20 52.4% (2490/4754) lines
+
+Got 75% coverage a few times but cannot reliably reproduce it.
+
+
+Test results
+JS results are the same whether minified or not
+
+Dartium (native): all pass
+Chrome (JS): 1 failure, "CodeEditor, rtlMovement"
+Safari(JS, minified): 4 failures, "Scrolling, movedown_hscroll_fixed",
+  "Scrolling, movedown_hscroll_resize", "Scrolling, moveright_scroll",
+  "Scrolling, moveright_scroll_wrap"
+Firefox(JS, minified): 1 failure, "CodeEditor, markTextCSS"
+
+
+TODO translate
+hint/xml-hint.js
+hint/html-hint.js
+hint/css-hint.js
+fold/*.js
+
+Merge all mode-specific css into each css mode file. E.g. show-hint.css

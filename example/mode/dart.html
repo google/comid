@@ -1,0 +1,75 @@
+<!doctype html>
+
+<title>CodeMirror: Dart mode</title>
+<meta charset="utf-8"/>
+<link rel=stylesheet href="../docs.css">
+<link rel="stylesheet" href="packages/comid/codemirror.css">
+<link rel="stylesheet" href="packages/comid/theme/vibrant-ink.css">
+<!--
+<link rel="stylesheet" href="../../addon/hint/show-hint.css">
+<script src="../../addon/hint/show-hint.js"></script>
+-->
+<style>.CodeMirror {border: 2px inset #dee;}</style>
+
+<article>
+<h2>Dart mode</h2>
+<form>
+<textarea id="code" name="code">
+import 'dart:math' show Random;
+
+void main() {
+  print(new Die(n: 12).roll());
+}
+
+// Define a class.
+class Die {
+  // Define a class variable.
+  static Random shaker = new Random();
+
+  // Define instance variables.
+  int sides, value;
+
+  // Define a method using shorthand syntax.
+  String toString() => '$value';
+
+  // Define a constructor.
+  Die({int n: 6}) {
+    if (4 <= n && n <= 20) {
+      sides = n;
+    } else {
+      // Support for errors and exceptions.
+      throw new ArgumentError(/* */);
+    }
+  }
+
+  // Define an instance method.
+  int roll() {
+    return value = shaker.nextInt(sides) + 1;
+  }
+}
+</textarea>
+</form>
+
+<script type="application/dart">
+library comid.dart;
+
+import 'dart:html';
+import 'package:comid/codemirror.dart';
+import 'package:comid/addon/mode/dart.dart';
+import 'package:comid/addon/edit/matchbrackets.dart';
+import 'package:comid/addon/edit/closebrackets.dart';
+
+main() {
+  DartMode.initialize();
+  initializeBracketMatching();
+  initializeBracketClosing();
+  var editor = CodeMirror.fromTextArea(document.getElementById("code"), {
+    'lineNumbers': true,
+    'matchBrackets': true,
+    'autoCloseBrackets': true,
+    'mode': "application/dart"
+  });
+}
+</script>
+Addition to clike.dart that defines a Dart mode.
+</article>

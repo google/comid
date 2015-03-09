@@ -1,0 +1,13 @@
+name: comid
+version: 0.0.1
+author: Comid Authors
+description: |-
+  CodeMirror in Dart
+  A code editing component designed to embed into web pages.
+homepage: https://github.com/dart-lang/comid
+environment:
+  sdk: '>=1.7.0 <2.0.0'
+dependencies:
+  browser: any
+dev_dependencies:
+  unittest: '>0.11.0 <0.12.0'
