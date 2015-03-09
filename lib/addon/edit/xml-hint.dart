@@ -25,7 +25,7 @@ getHints(CodeMirror cm, Map options) {
   var token = cm.getTokenAt(cur);
   if (token.end > cur.char) {
     token.end = cur.char;
-    token.string = token.string.slice(0, cur.char - token.start);
+    token.string = token.string.substring(0, cur.char - token.start);
   }
   var innr = cm.innerMode(cm.doc.getMode(), token.state);
   if (innr.mode.name != "xml") {
@@ -42,7 +42,8 @@ getHints(CodeMirror cm, Map options) {
   String tagType;
 
   if (tagName) {
-    var before = cm.getLine(cur.line).substring(max(0, token.start - 2), token.start);
+    var before = cm.getLine(cur.line);
+    before = before.substring(max(0, token.start - 2), token.start);
     tagType = new RegExp(r'<\/$').hasMatch(before)
         ? "close" : new RegExp(r'<$').hasMatch(before) ? "open" : null;
     if (tagType != null) tagStart = token.start - (tagType == "close" ? 2 : 1);
@@ -59,7 +60,8 @@ getHints(CodeMirror cm, Map options) {
     replaceToken = tagType != null;
     var cx = inner.state.context;
     var curTag = cx != null ? tags[cx.tagName] : null;
-    var childList = cx != null ? (curTag != null ? curTag.children : null) : tags["!top"];
+    var childList = cx != null
+        ? (curTag != null ? curTag.children : null) : tags["!top"];
     if (childList != null && tagType != "close") {
       for (var i = 0; i < childList.length; ++i) {
         if (prefix == null || childList[i].lastIndexOf(prefix, 0) == 0) {
@@ -98,10 +100,12 @@ getHints(CodeMirror cm, Map options) {
                                     ? token.start : token.end));
       var atName = new RegExp('([^\\s\\u00a0=<>\"\']+)=\$').firstMatch(before);
       var atValues;
-      if (atName == null || !attrs.containsKey(atName[1]) || (atValues = attrs[atName[1]]) == null) {
+      if (atName == null || !attrs.containsKey(atName[1]) ||
+          (atValues = attrs[atName[1]]) == null) {
         return null;
       }
-      if (atValues is Function) atValues = atValues.call(cm); // Functions can be used to supply values for autocomplete widget
+      // Functions can be used to supply values for autocomplete widget.
+      if (atValues is Function) atValues = atValues.call(cm);
       if (token.type is String) {
         prefix = token.string;
         var n = 0;
@@ -134,14 +138,16 @@ getHints(CodeMirror cm, Map options) {
       }
     }
   }
-  return new ProposalList(
-    list: result,
-    from: replaceToken ? new Pos(cur.line, tagStart == null ? token.start : tagStart) : cur,
-    to: replaceToken ? new Pos(cur.line, token.end) : cur
-  );
+  var from = cur, to = cur;
+  if (replaceToken) {
+    from = new Pos(cur.line, tagStart == null ? token.start : tagStart);
+    to = new Pos(cur.line, token.end);
+  }
+  return new ProposalList(list: result, from: from, to: to);
 }
 
 initialize() {
+  XmlMode.initialize();
   CodeMirror.registerHelper("hint", "xml", getHints);
 }
 

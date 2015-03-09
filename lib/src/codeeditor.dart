@@ -2319,7 +2319,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
   // Determines whether an event happened in the gutter, and fires the
   // handlers for the corresponding event.
   bool gutterEvent(CodeEditor cm, MouseEvent e, String type, bool prevent, Object signalfn) {
-    int mX = e.client.x, mY = e.client.y;
+    num mX = e.client.x, mY = e.client.y;
     if (mX >= (cm.display.gutters.getBoundingClientRect().right).floor()) return false;
     if (prevent) e_preventDefault(e);
 
@@ -2331,7 +2331,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
 
     for (var i = 0; i < cm.options.gutters.length; ++i) {
       var g = display.gutters.childNodes[i];
-      if (g && g.getBoundingClientRect().right >= mX) {
+      if (g != null && g.getBoundingClientRect().right >= mX) {
         var line = doc.lineAtHeight(cm.doc, mY);
         var gutter = cm.options.gutters[i];
         signalfn(cm, type, cm, line, gutter, e);
@@ -4328,6 +4328,7 @@ class EditState {
   var search;
   var matchHighlighter;
   var currentNotificationClose;
+  var foldGutter;
 
   EditState copy() {
     return new EditState()..copyValues(this);
@@ -4426,7 +4427,7 @@ class LineBuilder {
     split(Match match) {
       String old = match[0];
       var out = " ";
-      for (var i = 0; i < old.length - 2; ++i) out += i % 2 != 0 ? " " : r"\u00a0";
+      for (var i = 0; i < old.length - 2; ++i) out += i % 2 != 0 ? " " : "\u00a0";
       out += " ";
       return out;
     }

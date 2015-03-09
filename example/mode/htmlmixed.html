@@ -5,6 +5,7 @@
 <link rel=stylesheet href="../docs.css">
 <link rel="stylesheet" href="packages/comid/codemirror.css">
 <link rel="stylesheet" href="packages/comid/addon/edit/show-hint.css">
+<link rel="stylesheet" href="packages/comid/addon/fold/foldgutter.css">
 <!--
 <script src="../../addon/selection/selection-pointer.js"></script>
 <script src="../javascript/javascript.js"></script>
@@ -93,12 +94,14 @@ import 'package:comid/addon/mode/dart.dart';
 import 'package:comid/addon/mode/htmlmixed.dart';
 import 'package:comid/addon/edit/show-hint.dart' as hints;
 import 'package:comid/addon/edit/html-hint.dart' as html;
+import 'package:comid/addon/fold/fold-all.dart' as fold;
 
 main() {
   DartMode.initialize();
   HtmlMode.initialize();
   hints.initialize();
   html.initialize();
+  fold.initialize();
   // Define an extended mixed-mode that understands dart and
   // leaves mustache/handlebars embedded templates in html mode
   var mixedMode = {

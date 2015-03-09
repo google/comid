@@ -72,8 +72,9 @@ class Options {
   bool get autofocus => _opts['autofocus'];
   String get scrollbarStyle => _opts['scrollbarStyle'];
 
-  // Option for configuration of code completion
+  // Option for configuration of code completion & folding
   Object get hintOptions => _opts['hintOptions'];
+  Object get foldOptions => _opts['foldOptions'];
 
   // Options to control comment toggle
   String get lineComment => _opts['lineComment'];

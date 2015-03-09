@@ -17,7 +17,7 @@ Safari(JS, minified): 4 failures, "Scrolling, movedown_hscroll_fixed",
 Firefox(JS, minified): 1 failure, "CodeEditor, markTextCSS"
 
 
-TODO translate
+TODO test
 hint/xml-hint.js
 hint/html-hint.js
 hint/css-hint.js

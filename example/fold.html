@@ -1,0 +1,94 @@
+<!doctype html>
+
+<head>
+  <title>CodeMirror: Code Folding Demo</title>
+  <meta charset="utf-8"/>
+  <link rel=stylesheet href="docs.css">
+
+  <link rel="stylesheet" href="packages/comid/codemirror.css">
+  <link rel="stylesheet" href="packages/comid/addon/fold/foldgutter.css" />
+  <!--
+  <script src="../lib/codemirror.js"></script>
+  <script src="../addon/fold/foldcode.js"></script>
+  <script src="../addon/fold/foldgutter.js"></script>
+  <script src="../addon/fold/brace-fold.js"></script>
+  <script src="../addon/fold/xml-fold.js"></script>
+  <script src="../addon/fold/markdown-fold.js"></script>
+  <script src="../addon/fold/comment-fold.js"></script>
+  <script src="../mode/javascript/javascript.js"></script>
+  <script src="../mode/xml/xml.js"></script>
+  <script src="../mode/markdown/markdown.js"></script>
+  -->
+  <style type="text/css">
+    .CodeMirror {border-top: 1px solid black; border-bottom: 1px solid black;}
+  </style>
+</head>
+
+<body>
+
+<article>
+  <h2>Code Folding Demo</h2>
+  <form>
+    <div style="max-width: 50em; margin-bottom: 1em">Dart:<br>
+    <textarea id="code" name="code"></textarea></div>
+    <div style="max-width: 50em; margin-bottom: 1em">HTML:<br>
+    <textarea id="code-html" name="code-html"></textarea></div>
+    <div style="max-width: 50em">Markdown:<br>
+    <textarea id="code-markdown" name="code"></textarea></div>
+  </form>
+  <script id="script" type="application/dart">
+/*
+ * Demonstration of code folding
+ */
+
+library comid.search;
+import 'dart:html';
+import 'package:comid/codemirror.dart';
+import 'package:comid/addon/fold/fold-all.dart' as fold;
+import 'package:comid/addon/mode/dart.dart';
+
+main() {
+  fold.initialize();
+  DartMode.initialize();
+  var te = document.getElementById("code");
+  ScriptElement sc = document.getElementById("script");
+  te.value = sc.text.replaceAll(new RegExp(r'^\s*'), "");
+  sc.innerHtml = "";
+  var te_html = document.getElementById("code-html");
+  te_html.value = document.documentElement.innerHtml;
+  var te_markdown = document.getElementById("code-markdown");
+  te_markdown.value = "# Foo\n## Bar\n\nblah blah\n\n## Baz\n\nblah blah\n\n# Quux\n\nblah blah\n";
+
+  var editor = CodeMirror.fromTextArea(te, {
+    'mode': "dart",
+    'lineNumbers': true,
+    'lineWrapping': true,
+    'extraKeys': {"Ctrl-Q": ([cm]){ fold.foldCode(cm, cm.getCursor()); }},
+    'foldGutter': true,
+    'gutters': ["CodeMirror-linenumbers", "CodeMirror-foldgutter"]
+  });
+  fold.foldCode(editor, new Pos(10, 0));
+
+  var editor_html = CodeMirror.fromTextArea(te_html, {
+    'mode': "text/html",
+    'lineNumbers': true,
+    'lineWrapping': true,
+    'extraKeys': {"Ctrl-Q": ([cm]){ fold.foldCode(cm, cm.getCursor()); }},
+    'foldGutter': true,
+    'gutters': ["CodeMirror-linenumbers", "CodeMirror-foldgutter"]
+  });
+  fold.foldCode(editor_html, new Pos(0, 0));
+  fold.foldCode(editor_html, new Pos(21, 0));
+
+  var editor_markdown = CodeMirror.fromTextArea(te_markdown, {
+    'mode': "markdown",
+    'lineNumbers': true,
+    'lineWrapping': true,
+    'extraKeys': {"Ctrl-Q": ([cm]){ fold.foldCode(cm, cm.getCursor()); }},
+    'foldGutter': true,
+    'gutters': ["CodeMirror-linenumbers", "CodeMirror-foldgutter"]
+  });
+}
+  </script>
+</article>
+</body>

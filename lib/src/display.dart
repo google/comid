@@ -397,7 +397,8 @@ class Displ implements Display {
     var fragment = document.createDocumentFragment();
     var padding = paddingH();
     num leftSide = padding.left;
-    num rightSide = max(display.sizerWidth, displayWidth() - display.sizer.offsetLeft) - padding.right;
+    num wid = display.sizerWidth == null ? 0 : display.sizerWidth;
+    num rightSide = max(wid, displayWidth() - display.sizer.offsetLeft) - padding.right;
 
     add(num left, num top, num width, num bottom) {
       if (top < 0) top = 0;
