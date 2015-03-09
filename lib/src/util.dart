@@ -349,6 +349,17 @@ class Range {
   String toString() => 'Range($anchor, $head)';
 }
 
+class Reach {
+  Pos from, to;
+  Reach(this.from, this.to);
+  bool get cleared => false;
+}
+
+class ReachCleared extends Reach {
+  ReachCleared(from, to) : super(from, to);
+  bool get cleared => true;
+}
+
 class Padding {
   num left;
   num right;
@@ -410,7 +421,7 @@ Selection simpleSelection(Pos anchor, [Pos head = null]) {
 
 // Counts the column offset in a string, taking tabs into account.
 // Used mostly to find indentation.
-countColumn(String string, int end, int tabSize,
+int countColumn(String string, int end, int tabSize,
             [int startIndex = 0, int startValue = 0]) {
   if (end == null) {
     Match match = new RegExp(r'[^\s\u00a0]').firstMatch(string);
@@ -423,12 +434,14 @@ countColumn(String string, int end, int tabSize,
   }
   for (var i = startIndex, n = startValue; ; ) {
     var nextTab = string.indexOf("\t", i);
-    if (nextTab < 0 || nextTab >= end)
+    if (nextTab < 0 || nextTab >= end) {
       return n + (end - i);
+    }
     n += nextTab - i;
     n += tabSize - (n % tabSize);
     i = nextTab + 1;
   }
+  throw new StateError('countColumn() failed');
 }
 
 // The inverse of countColumn -- find the offset that corresponds to

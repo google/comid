@@ -1813,12 +1813,14 @@ class Document extends BranchChunk with EventManager implements Doc {
       // If it is a text node, use a range to retrieve the coordinates.
       for (var i = 0; i < 4; i++) {
         // Retry a maximum of 4 times when nonsense rectangles are returned
-        while (start > 0 &&
-            isExtendingChar(prepared.line.text.substring(mStart + start, mStart + start + 1))) {
+        var prepLine = prepared.line.text;
+        var prepLineLen = prepLine.length;
+        while (start > 0 && mStart + start + 1 <= prepLineLen &&
+            isExtendingChar(prepLine.substring(mStart + start, mStart + start + 1))) {
           --start;
         }
-        while (mStart + end < mEnd &&
-            isExtendingChar(prepared.line.text.substring(mStart + end, mStart + end + 1))) {
+        while (mStart + end < mEnd && mStart + end + 1 <= prepLineLen &&
+            isExtendingChar(prepLine.substring(mStart + end, mStart + end + 1))) {
           ++end;
         }
         if (ie && ie_version < 9 && start == 0 && end == mEnd - mStart) {
@@ -2827,6 +2829,7 @@ class TextMarker extends AbstractTextMarker {
   bool inclusiveLeft = false, inclusiveRight = false, insertLeft = false;
   bool shared = false;
   String css;
+  var isFold;
 
   TextMarker(this.doc, this.type, TextMarkerOptions options) {
     this.lines = [];
@@ -2849,6 +2852,7 @@ class TextMarker extends AbstractTextMarker {
       shared = options.shared;
       css = options.css;
     }
+    isFold = false;
   }
 
   OperationGroup get operationGroup => doc.operationGroup;
@@ -3296,7 +3300,9 @@ class MarkedSpan extends Span {
 
 // {start: start, string: string, type: type, state: state}
 class Token {
-  var start, end, string, type, state;
+  int start, end;
+  String string;
+  var type, state;
   Token(this.start, this.end, this.string, this.type, this.state);
 }
 

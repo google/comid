@@ -51,6 +51,7 @@ abstract class CodeMirror implements EventManager {
     return CodeEditor.getMode(options, spec);
   }
   static defineMode(name, var mode) { CodeEditor.defineMode(name, mode); }
+  static resolveMode(dynamic spec) => CodeEditor.resolveMode(spec);
   static defineSimpleMode(name, states, [props]) { CodeEditor.defineSimpleMode(name, states, props); }
   static defineMIME(mime, spec) { CodeEditor.defineMIME(mime, spec); }
   static registerHelper(type, name, value) { CodeEditor.registerHelper(type, name, value); }
