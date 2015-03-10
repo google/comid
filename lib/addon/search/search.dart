@@ -174,10 +174,10 @@ replace([CodeMirror cm, bool all = false]) {
         var advance;
         var doReplace;
         advance = () {
-          var start = cursor.from(), match;
-          if (!(match = cursor.findNext())) {
+          var start = cursor.from();
+          if (!(cursor.findNext())) {
             cursor = getSearchCursor(cm, query);
-            if (!(match = cursor.findNext()) ||
+            if (!(cursor.findNext()) ||
                 (start != null && cursor.from().line == start.line &&
                     cursor.from().char == start.char)) {
               return;
@@ -330,7 +330,7 @@ class SearchCursor {
               }
              } else {
                var orig = doc.getLine(pos.line).substring(pos.char);
-               var line = fold(orig);
+               String line = fold(orig);
                var match = line.indexOf(query);
                if (match > -1) {
                  match = _adjustPos(orig, line, match) + pos.char;

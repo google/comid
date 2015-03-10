@@ -81,7 +81,7 @@ Map buildKeymap(String pairs) {
     closingBrackets += right;
     map["'" + left + "'"] = (CodeMirror cm) {
       if (cm.getOption("disableInput")) return Pass;
-      var ranges = cm.listSelections(), type, next;
+      var ranges = cm.listSelections(), type;
       for (var i = 0; i < ranges.length; i++) {
         var range = ranges[i], cur = range.head, curType;
         var next = cm.getRange(cur, new Pos(cur.line, cur.char + 1));

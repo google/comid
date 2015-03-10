@@ -24,7 +24,7 @@ part 'src/mode.dart';
 
 typedef void Handler(CodeMirror cm, Object dflt, Object old);
 typedef void CommandHandler([CodeMirror cm]);
-typedef void LineFn(Line line);
+typedef dynamic LineFn(Line line);
 typedef Span RangeFn(Range range);
 
 abstract class CodeMirror implements EventManager {

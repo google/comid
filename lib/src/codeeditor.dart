@@ -3660,8 +3660,8 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     return (String str) {
       if (!bidiRE.hasMatch(str)) return false;
       var len = str.length, types = [];
-      for (var i = 0, type; i < len; ++i)
-        types.add(type = charType(str.codeUnitAt(i)));
+      for (var i = 0; i < len; ++i)
+        types.add(charType(str.codeUnitAt(i)));
 
       // W1. Examine each non-spacing mark (NSM) in the level run, and
       // change the type of the NSM to the type of the previous
@@ -3949,7 +3949,7 @@ class CodeEditorArea extends CodeEditor {
         FormElement form = textarea.form;
         realSubmit = form.submit;
         try {
-          var wrappedSubmit;
+//          var wrappedSubmit;
           // TODO Consider cusom JS code to hack the submit function.
 //          form.submit = () {
 //            save();
@@ -3957,7 +3957,7 @@ class CodeEditorArea extends CodeEditor {
 //            form.submit();
 //            form.submit = wrappedSubmit;
 //          };
-          wrappedSubmit = form.submit;
+//          wrappedSubmit = form.submit;
         } catch(e) {}
       }
     }
