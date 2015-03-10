@@ -72,14 +72,6 @@ class Displ implements Display {
     // Wraps and hides input textarea
     inputDiv = eltdiv([input], null,
         "overflow: hidden; position: relative; width: 3px; height: 0px;");
-// NEW TO REMOVE
-//    // The fake scrollbar elements.
-//    scrollbarH = eltdiv(
-//        [eltdiv(null, null, "height: 100%; min-height: 1px")],
-//        "CodeMirror-hscrollbar");
-//    scrollbarV = eltdiv(
-//        [eltdiv(null, null, "min-width: 1px")],
-//        "CodeMirror-vscrollbar");
     // Covers bottom-right square when both scrollbars are present.
     scrollbarFiller = eltdiv(null, "CodeMirror-scrollbar-filler");
     scrollbarFiller.setAttribute("not-content", "true");
@@ -173,7 +165,6 @@ class Displ implements Display {
     poll = new Delayed();
 
     cachedCharWidth = cachedTextHeight = 0;
-    var cachedPaddingH = null;
 
     // Tracks when resetInput has punted to just putting a short
     // string into the textarea instead of the full selection.
@@ -727,13 +718,10 @@ class Displ implements Display {
   }
 
   void postUpdateDisplay(CodeEditor cm, DisplayUpdate update) {
-    var force = update.force;
     var viewport = update.viewport;
     for (var first = true;; first = false) {
       if (first && cm.options.lineWrapping && update.oldDisplayWidth != displayWidth()) {
-        force = true;
       } else {
-        force = false;
         // Clip forced viewport to actual scrollable area.
         if (viewport != null && viewport.top != -1)
           viewport = new Viewport(min(cm.doc.height + paddingVert() - displayHeight(), viewport.top));
