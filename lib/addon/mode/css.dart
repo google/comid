@@ -14,13 +14,15 @@ class CssMode extends Mode {
 
   int indentUnit;
   var tokenHooks;
+  var documentTypes;
   var mediaTypes;
   var mediaFeatures;
   var propertyKeywords;
   var nonStandardPropertyKeywords;
+  var fontProperties;
+  var counterDescriptors;
   var colorKeywords;
   var valueKeywords;
-  var fontProperties;
   bool allowNested;
 
   var type, override;
@@ -33,13 +35,15 @@ class CssMode extends Mode {
     if (parserConfig is Map) parserConfig = new Config();
     indentUnit = options.indentUnit;
     tokenHooks = parserConfig.tokenHooks;
+    documentTypes = parserConfig.documentTypes;
     mediaTypes = parserConfig.mediaTypes;
     mediaFeatures = parserConfig.mediaFeatures;
     propertyKeywords = parserConfig.propertyKeywords;
     nonStandardPropertyKeywords = parserConfig.nonStandardPropertyKeywords;
+    fontProperties = parserConfig.fontProperties;
+    counterDescriptors = parserConfig.counterDescriptors;
     colorKeywords = parserConfig.colorKeywords;
     valueKeywords = parserConfig.valueKeywords;
-    fontProperties = parserConfig.fontProperties;
     allowNested = parserConfig.allowNested;
     name = parserConfig.name;
     helperType = parserConfig.helperType;
@@ -51,10 +55,10 @@ class CssMode extends Mode {
     states['propBlock'] = propBlock;
     states['parens'] = parens;
     states['pseudo'] = pseudo;
-    states['media'] = media;
-    states['media_parens'] = media_parens;
-    states['font_face_before'] = font_face_before;
-    states['font_face'] = font_face;
+    states['atBlock'] = atBlock;
+    states['atBlock_parens'] = atBlock_parens;
+    states['restricted_atBlock_before'] = restricted_atBlock_before;
+    states['restricted_atBlock'] = restricted_atBlock;
     states['keyframes'] = keyframes;
     states['at'] = at;
     states['interpolation'] = interpolation;
@@ -91,6 +95,12 @@ class CssMode extends Mode {
       if (new RegExp(r'[\d.]').hasMatch(stream.peek())) {
         stream.eatWhile(new RegExp(r'[\w.%]'));
         return ret("number", "unit");
+      } else if (stream.match(new RegExp(r'^-[\w\\\-]+')) != null) {
+        stream.eatWhile(new RegExp(r'[\w\\\-]'));
+        if (stream.match(new RegExp(r'^\s*:'), false) != null) {
+          return ret("variable-2", "variable-definition");
+        }
+        return ret("variable-2", "variable");
       } else if (stream.match(new RegExp(r'^\w+-')) != null) {
         return ret("meta", "meta");
       }
@@ -101,7 +111,9 @@ class CssMode extends Mode {
       return ret("qualifier", "qualifier");
     } else if (new RegExp(r'[:;{}\[\]\(\)]').hasMatch(ch)) {
       return ret(null, ch);
-    } else if (ch == "u" && stream.match("rl(") != null) {
+    } else if (ch == "u" && stream.match(new RegExp(r"rl(-prefix)?\(")) != null ||
+              (ch == "d" && stream.match("omain(") != null) ||
+              (ch == "r" && stream.match("egexp(") != null)) {
       stream.backUp(1);
       state.tokenize = tokenParenthesized;
       return ret("property", "word");
@@ -141,6 +153,7 @@ class CssMode extends Mode {
     return new CssState(
         tokenize: null,
         state: "top",
+        stateArg: null,
         context: new Context("top", base, null));
   }
 
@@ -162,9 +175,9 @@ class CssMode extends Mode {
     var indent = cx.indent;
     if (cx.type == "prop" && (ch == "}" || ch == ")")) cx = cx.prev;
     if (cx.prev != null &&
-        (ch == "}" && (cx.type == "block" || cx.type == "top" || cx.type == "interpolation" || cx.type == "font_face") ||
-         ch == ")" && (cx.type == "parens" || cx.type == "media_parens") ||
-         ch == "{" && (cx.type == "at" || cx.type == "media"))) {
+        (ch == "}" && (cx.type == "block" || cx.type == "top" || cx.type == "interpolation" || cx.type == "restricted_atBlock") ||
+         ch == ")" && (cx.type == "parens" || cx.type == "atBlock_parens") ||
+         ch == "{" && (cx.type == "at" || cx.type == "atBlock"))) {
       indent = cx.indent - indentUnit;
       cx = cx.prev;
     }
@@ -222,10 +235,11 @@ class CssMode extends Mode {
       return pushContext(state, stream, "block");
     } else if (type == "}" && state.context.prev != null) {
       return popContext(state);
-    } else if (type == "@media") {
-      return pushContext(state, stream, "media");
-    } else if (type == "@font-face") {
-      return "font_face_before";
+    } else if (new RegExp(r'@(media|supports|(-moz-)?document)').hasMatch(type)) {
+      return pushContext(state, stream, "atBlock");
+    } else if (new RegExp(r'@(font-face|counter-style)').hasMatch(type)) {
+      state.stateArg = type;
+      return "restricted_atBlock_before";
     } else if (new RegExp(r'^@(-(moz|ms|o|webkit)-)?keyframes$').hasMatch(type)) {
       return "keyframes";
     } else if (type.substring(0,1) == "@") {
@@ -304,6 +318,7 @@ class CssMode extends Mode {
     if (type == "{" || type == "}") return popAndPass(type, stream, state);
     if (type == ")") return popContext(state);
     if (type == "(") return pushContext(state, stream, "parens");
+    if (type == "interpolation") return pushContext(state, stream, "interpolation");
     if (type == "word") wordAsValue(stream);
     return "parens";
   }
@@ -316,8 +331,8 @@ class CssMode extends Mode {
     return pass(type, stream, state);
   }
 
-  media(String type, StringStream stream, CssState state) {
-    if (type == "(") return pushContext(state, stream, "media_parens");
+  atBlock(String type, StringStream stream, CssState state) {
+    if (type == "(") return pushContext(state, stream, "atBlock_parens");
     if (type == "}") return popAndPass(type, stream, state);
     if (type == "{") {
       var val = popContext(state);
@@ -329,40 +344,57 @@ class CssMode extends Mode {
 
     if (type == "word") {
       var word = stream.current().toLowerCase();
-      if (word == "only" || word == "not" || word == "and")
+      if (word == "only" || word == "not" || word == "and" || word == "or")
         override = "keyword";
+      else if (documentTypes != null && documentTypes.containsKey(word))
+        override = "tag";
       else if (mediaTypes != null && mediaTypes.containsKey(word))
         override = "attribute";
       else if (mediaFeatures != null && mediaFeatures.containsKey(word))
         override = "property";
+      else if (propertyKeywords != null && propertyKeywords.containsKey(word))
+        override = "property";
+      else if (nonStandardPropertyKeywords != null && nonStandardPropertyKeywords.containsKey(word))
+        override = "string-2";
+      else if (valueKeywords != null && valueKeywords.containsKey(word))
+        override = "atom";
       else
         override = "error";
     }
     return state.context.type;
   }
 
-  media_parens(String type, StringStream stream, CssState state) {
+  atBlock_parens(String type, StringStream stream, CssState state) {
     if (type == ")") return popContext(state);
     if (type == "{" || type == "}") return popAndPass(type, stream, state, 2);
-    return states['media'](type, stream, state);
+    return states['atBlock'](type, stream, state);
   }
 
-  font_face_before(type, StringStream stream, state) {
+  restricted_atBlock_before(type, StringStream stream, state) {
     if (type == "{")
-      return pushContext(state, stream, "font_face");
+      return pushContext(state, stream, "restricted_atBlock");
+    if (type == "word" && state.stateArg == "@counter-style") {
+      override = "variable";
+      return "restricted_atBlock_before";
+    }
     return pass(type, stream, state);
   }
 
-  font_face(String type, StringStream stream, CssState state) {
-    if (type == "}") return popContext(state);
+  restricted_atBlock(String type, StringStream stream, CssState state) {
+    if (type == "}") {
+      state.stateArg = null;
+      return popContext(state);
+    }
     if (type == "word") {
-      if (!fontProperties.containsKey(stream.current().toLowerCase()))
+      String word = stream.current().toLowerCase();
+      if ((state.stateArg == "@font-face" && (fontProperties == null || !fontProperties.containsKey(word))) ||
+          (state.stateArg == "@counter-style" && (counterDescriptors == null || !counterDescriptors.containsKey(word))))
         override = "error";
       else
         override = "property";
       return "maybeprop";
     }
-    return "font_face";
+    return "restricted_atBlock";
   }
 
   keyframes(String type, StringStream stream, CssState state) {
@@ -390,9 +422,10 @@ class CssMode extends Mode {
 class CssState extends ModeState {
   Function tokenize;
   String state;
+  String stateArg;
   Context context;
 
-  CssState({this.context, this.tokenize, this.state});
+  CssState({this.context, this.tokenize, this.state, this.stateArg});
 
   CssState newInstance() {
     return new CssState();
@@ -402,6 +435,7 @@ class CssState extends ModeState {
     context = old.context;
     state = old.state;
     tokenize = old.tokenize;
+    stateArg = old.stateArg;
   }
 
   String toString() {
@@ -409,7 +443,7 @@ class CssState extends ModeState {
     if (tokenize == tokenCComment) tok = "tokenCComment";
     else if (tokenize == tokenSGMLComment) tok = "tokenSGMLComment";
     else tok = "<method>";
-    return "CssState($state, $tok, $context)";
+    return "CssState($state, $tok, $stateArg, $context)";
   }
 }
 
@@ -431,6 +465,10 @@ bool _initialized = false;
 _initialize() {
   if (_initialized) return;
   _initialized = true;
+
+  var documentTypes_ = [
+    "domain", "regexp", "url", "url-prefix"
+  ], documentTypes = keySet(documentTypes_);
 
   var mediaTypes_ = [
     "all", "aural", "braille", "handheld", "print", "projection", "screen",
@@ -548,6 +586,16 @@ _initialize() {
     "searchfield-results-decoration", "zoom"
   ], nonStandardPropertyKeywords = keySet(nonStandardPropertyKeywords_);
 
+  var fontProperties_ = [
+    "font-family", "src", "unicode-range", "font-variant", "font-feature-settings",
+    "font-stretch", "font-weight", "font-style"
+  ], fontProperties = keySet(fontProperties_);
+
+  var counterDescriptors_ = [
+    "additive-symbols", "fallback", "negative", "pad", "prefix", "range",
+    "speak-as", "suffix", "symbols", "system"
+  ], counterDescriptors = keySet(counterDescriptors_);
+
   var colorKeywords_ = [
     "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige",
     "bisque", "black", "blanchedalmond", "blue", "blueviolet", "brown",
@@ -578,32 +626,33 @@ _initialize() {
   ], colorKeywords = keySet(colorKeywords_);
 
   var valueKeywords_ = [
-    "above", "absolute", "activeborder", "activecaption", "afar",
-    "after-white-space", "ahead", "alias", "all", "all-scroll", "alternate",
+    "above", "absolute", "activeborder", "additive", "activecaption", "afar",
+    "after-white-space", "ahead", "alias", "all", "all-scroll", "alphabetic", "alternate",
     "always", "amharic", "amharic-abegede", "antialiased", "appworkspace",
-    "arabic-indic", "armenian", "asterisks", "auto", "avoid", "avoid-column", "avoid-page",
+    "arabic-indic", "armenian", "asterisks", "attr", "auto", "avoid", "avoid-column", "avoid-page",
     "avoid-region", "background", "backwards", "baseline", "below", "bidi-override", "binary",
     "bengali", "blink", "block", "block-axis", "bold", "bolder", "border", "border-box",
-    "both", "bottom", "break", "break-all", "break-word", "button", "button-bevel",
-    "buttonface", "buttonhighlight", "buttonshadow", "buttontext", "cambodian",
+    "both", "bottom", "break", "break-all", "break-word", "bullets", "button", "button-bevel",
+    "buttonface", "buttonhighlight", "buttonshadow", "buttontext", "calc", "cambodian",
     "capitalize", "caps-lock-indicator", "caption", "captiontext", "caret",
-    "cell", "center", "checkbox", "circle", "cjk-earthly-branch",
+    "cell", "center", "checkbox", "circle", "cjk-decimal", "cjk-earthly-branch",
     "cjk-heavenly-stem", "cjk-ideographic", "clear", "clip", "close-quote",
     "col-resize", "collapse", "column", "compact", "condensed", "contain", "content",
-    "content-box", "context-menu", "continuous", "copy", "cover", "crop",
-    "cross", "crosshair", "currentcolor", "cursive", "dashed", "decimal",
+    "content-box", "context-menu", "continuous", "copy", "counter", "counters", "cover", "crop",
+    "cross", "crosshair", "currentcolor", "cursive", "cyclic", "dashed", "decimal",
     "decimal-leading-zero", "default", "default-button", "destination-atop",
     "destination-in", "destination-out", "destination-over", "devanagari",
-    "disc", "discard", "document", "dot-dash", "dot-dot-dash", "dotted",
-    "double", "down", "e-resize", "ease", "ease-in", "ease-in-out", "ease-out",
+    "disc", "discard", "disclosure-closed", "disclosure-open", "document",
+    "dot-dash", "dot-dot-dash",
+    "dotted", "double", "down", "e-resize", "ease", "ease-in", "ease-in-out", "ease-out",
     "element", "ellipse", "ellipsis", "embed", "end", "ethiopic", "ethiopic-abegede",
     "ethiopic-abegede-am-et", "ethiopic-abegede-gez", "ethiopic-abegede-ti-er",
     "ethiopic-abegede-ti-et", "ethiopic-halehame-aa-er",
     "ethiopic-halehame-aa-et", "ethiopic-halehame-am-et",
     "ethiopic-halehame-gez", "ethiopic-halehame-om-et",
     "ethiopic-halehame-sid-et", "ethiopic-halehame-so-et",
-    "ethiopic-halehame-ti-er", "ethiopic-halehame-ti-et",
-    "ethiopic-halehame-tig", "ew-resize", "expanded", "extra-condensed",
+    "ethiopic-halehame-ti-er", "ethiopic-halehame-ti-et", "ethiopic-halehame-tig",
+    "ethiopic-numeric", "ew-resize", "expanded", "extends", "extra-condensed",
     "extra-expanded", "fantasy", "fast", "fill", "fixed", "flat", "flex", "footnotes",
     "forwards", "from", "geometricPrecision", "georgian", "graytext", "groove",
     "gujarati", "gurmukhi", "hand", "hangul", "hangul-consonant", "hebrew",
@@ -612,12 +661,14 @@ _initialize() {
     "inactiveborder", "inactivecaption", "inactivecaptiontext", "infinite",
     "infobackground", "infotext", "inherit", "initial", "inline", "inline-axis",
     "inline-block", "inline-flex", "inline-table", "inset", "inside", "intrinsic", "invert",
-    "italic", "justify", "kannada", "katakana", "katakana-iroha", "keep-all", "khmer",
+    "italic", "japanese-formal", "japanese-informal", "justify", "kannada",
+    "katakana", "katakana-iroha", "keep-all", "khmer",
+    "korean-hangul-formal", "korean-hanja-formal", "korean-hanja-informal",
     "landscape", "lao", "large", "larger", "left", "level", "lighter",
-    "line-through", "linear", "lines", "list-item", "listbox", "listitem",
+    "line-through", "linear", "linear-gradient", "lines", "list-item", "listbox", "listitem",
     "local", "logical", "loud", "lower", "lower-alpha", "lower-armenian",
     "lower-greek", "lower-hexadecimal", "lower-latin", "lower-norwegian",
-    "lower-roman", "lowercase", "ltr", "malayalam", "match",
+    "lower-roman", "lowercase", "ltr", "malayalam", "match", "matrix", "matrix3d",
     "media-controls-background", "media-current-time-display",
     "media-fullscreen-button", "media-mute-button", "media-play-button",
     "media-return-to-realtime-button", "media-rewind-button",
@@ -629,58 +680,63 @@ _initialize() {
     "mix", "mongolian", "monospace", "move", "multiple", "myanmar", "n-resize",
     "narrower", "ne-resize", "nesw-resize", "no-close-quote", "no-drop",
     "no-open-quote", "no-repeat", "none", "normal", "not-allowed", "nowrap",
-    "ns-resize", "nw-resize", "nwse-resize", "oblique", "octal", "open-quote",
+    "ns-resize", "numbers", "numeric", "nw-resize", "nwse-resize", "oblique", "octal", "open-quote",
     "optimizeLegibility", "optimizeSpeed", "oriya", "oromo", "outset",
     "outside", "outside-shape", "overlay", "overline", "padding", "padding-box",
-    "painted", "page", "paused", "persian", "plus-darker", "plus-lighter", "pointer",
-    "polygon", "portrait", "pre", "pre-line", "pre-wrap", "preserve-3d", "progress", "push-button",
-    "radio", "read-only", "read-write", "read-write-plaintext-only", "rectangle", "region",
-    "relative", "repeat", "repeat-x", "repeat-y", "reset", "reverse", "rgb", "rgba",
-    "ridge", "right", "round", "row-resize", "rtl", "run-in", "running",
-    "s-resize", "sans-serif", "scroll", "scrollbar", "se-resize", "searchfield",
+    "painted", "page", "paused", "persian", "perspective", "plus-darker", "plus-lighter",
+    "pointer", "polygon", "portrait", "pre", "pre-line", "pre-wrap", "preserve-3d",
+    "progress", "push-button", "radial-gradient", "radio", "read-only",
+    "read-write", "read-write-plaintext-only", "rectangle", "region",
+    "relative", "repeat", "repeating-linear-gradient",
+    "repeating-radial-gradient", "repeat-x", "repeat-y", "reset", "reverse",
+    "rgb", "rgba", "ridge", "right", "rotate", "rotate3d", "rotateX", "rotateY",
+    "rotateZ", "round", "row-resize", "rtl", "run-in", "running",
+    "s-resize", "sans-serif", "scale", "scale3d", "scaleX", "scaleY", "scaleZ",
+    "scroll", "scrollbar", "se-resize", "searchfield",
     "searchfield-cancel-button", "searchfield-decoration",
     "searchfield-results-button", "searchfield-results-decoration",
     "semi-condensed", "semi-expanded", "separate", "serif", "show", "sidama",
-    "single", "skip-white-space", "slide", "slider-horizontal",
+    "simp-chinese-formal", "simp-chinese-informal", "single",
+    "skew", "skewX", "skewY", "skip-white-space", "slide", "slider-horizontal",
     "slider-vertical", "sliderthumb-horizontal", "sliderthumb-vertical", "slow",
     "small", "small-caps", "small-caption", "smaller", "solid", "somali",
-    "source-atop", "source-in", "source-out", "source-over", "space", "square",
-    "square-button", "start", "static", "status-bar", "stretch", "stroke",
-    "sub", "subpixel-antialiased", "super", "sw-resize", "table",
+    "source-atop", "source-in", "source-out", "source-over", "space", "spell-out", "square",
+    "square-button", "start", "static", "status-bar", "stretch", "stroke", "sub",
+    "subpixel-antialiased", "super", "sw-resize", "symbolic", "symbols", "table",
     "table-caption", "table-cell", "table-column", "table-column-group",
     "table-footer-group", "table-header-group", "table-row", "table-row-group",
+    "tamil",
     "telugu", "text", "text-bottom", "text-top", "textarea", "textfield", "thai",
     "thick", "thin", "threeddarkshadow", "threedface", "threedhighlight",
     "threedlightshadow", "threedshadow", "tibetan", "tigre", "tigrinya-er",
     "tigrinya-er-abegede", "tigrinya-et", "tigrinya-et-abegede", "to", "top",
+    "trad-chinese-formal", "trad-chinese-informal",
+    "translate", "translate3d", "translateX", "translateY", "translateZ",
     "transparent", "ultra-condensed", "ultra-expanded", "underline", "up",
     "upper-alpha", "upper-armenian", "upper-greek", "upper-hexadecimal",
     "upper-latin", "upper-norwegian", "upper-roman", "uppercase", "urdu", "url",
-    "vertical", "vertical-text", "visible", "visibleFill", "visiblePainted",
+    "var", "vertical", "vertical-text", "visible", "visibleFill", "visiblePainted",
     "visibleStroke", "visual", "w-resize", "wait", "wave", "wider",
-    "window", "windowframe", "windowtext", "x-large", "x-small", "xor",
+    "window", "windowframe", "windowtext", "words", "x-large", "x-small", "xor",
     "xx-large", "xx-small"
   ], valueKeywords = keySet(valueKeywords_);
 
-  var fontProperties_ = [
-    "font-family", "src", "unicode-range", "font-variant", "font-feature-settings",
-    "font-stretch", "font-weight", "font-style"
-  ], fontProperties = keySet(fontProperties_);
-
-  var allWords = []..addAll(mediaTypes_)..addAll(mediaFeatures_)..addAll(propertyKeywords_)
+  var allWords = []..addAll(documentTypes_)..addAll(mediaTypes_)..addAll(mediaFeatures_)..addAll(propertyKeywords_)
     ..addAll(nonStandardPropertyKeywords_)..addAll(colorKeywords_)..addAll(valueKeywords_);
 
   CodeMirror.registerHelper("hintWords", "css", allWords);
   CodeMirror.defineMode("css", (dynamic a, dynamic b) => new CssMode(a, b));
 
   CodeMirror.defineMIME("text/css", new Config(
+    documentTypes: documentTypes,
     mediaTypes: mediaTypes,
     mediaFeatures: mediaFeatures,
     propertyKeywords: propertyKeywords,
     nonStandardPropertyKeywords: nonStandardPropertyKeywords,
+    fontProperties: fontProperties,
+    counterDescriptors: counterDescriptors,
     colorKeywords: colorKeywords,
     valueKeywords: valueKeywords,
-    fontProperties: fontProperties,
     tokenHooks: {
       "<": (StringStream stream, state) {
         if (stream.match("!--") == null) return false;
@@ -813,6 +869,8 @@ class Config {
   var colorKeywords;
   var valueKeywords;
   var fontProperties;
+  var counterDescriptors;
+  var documentTypes;
   bool allowNested;
   Map tokenHooks;
   String name;
@@ -826,8 +884,10 @@ class Config {
     this.colorKeywords,
     this.valueKeywords,
     this.fontProperties,
+    this.counterDescriptors,
     this.allowNested: false,
     this.tokenHooks,
+    this.documentTypes,
     this.name,
     this.helperType
   });

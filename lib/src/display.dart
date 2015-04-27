@@ -9,15 +9,16 @@ part of comid;
 // display-related state.
 class Displ implements Display {
   DivElement wrapper;
-  TextAreaElement input;
-  DivElement inputDiv, /*scrollbarH, scrollbarV,*/ scrollbarFiller, gutterFiller;
+  InputStyle input;
+  DivElement scrollbarFiller, gutterFiller;
   DivElement lineDiv, selectionDiv, cursorDiv, measure, lineMeasure, lineSpace;
   DivElement mover, sizer, heightForcer, gutters, lineGutter, scroller;
-  var sizerWidth, reportedViewFrom, reportedViewTo, renderedView; // NEW
-  int nativeBarWidth, barHeight, barWidth; // NEW
-  bool scrollbarsClipped; // NEW
-  NullScrollbars scrollbars; // NEW
-  bool contextMenuPending = false; // NEW
+  var sizerWidth, reportedViewFrom, reportedViewTo, renderedView;
+  int nativeBarWidth, barHeight, barWidth;
+  bool scrollbarsClipped;
+  NullScrollbars scrollbars;
+  bool contextMenuPending = false;
+  TouchTime activeTouch;
 
   int viewFrom, viewTo;
   List<LineView> view;
@@ -27,19 +28,15 @@ class Displ implements Display {
   var updateLineNumbers;
   int lineNumWidth, lineNumInnerWidth;
   var lineNumChars;
-  String prevInput;
   bool alignWidgets;
-  bool pollingFast;
-  Delayed poll;
   num cachedCharWidth, cachedTextHeight;
   Padding cachedPaddingH;
-  bool inaccurateSelection;
   Line maxLine;
   int maxLineLength;
   bool maxLineChanged;
   int wheelDX, wheelDY, wheelStartX, wheelStartY;
   bool shift;
-  var selForContextMenu;
+  Selection selForContextMenu;
   bool disabled;
   Element currentWheelTarget;
   String inputHasSelection; // This is a hack for IE.
@@ -51,34 +48,16 @@ class Displ implements Display {
   /// appended to it. [place] may be null, in which case the Div is not attached
   /// to anything. It may also be an arbitrary function which takes the Div as
   /// a parameter.
-  Displ(var place, Doc doc) {
-    // The semihidden textarea that is focused when the editor is
-    // focused, and receives input.
-    var inputElt = elt("textarea", null, null,
-      "position: absolute; padding: 0; width: 1px; height: 1em; outline: none");
-    input = inputElt as TextAreaElement;
-    // The textarea is kept positioned near the cursor to prevent the
-    // fact that it'll be scrolled into view on input from scrolling
-    // our fake cursor out of view. On webkit, when wrap=off, paste is
-    // very slow. So make the area wide instead.
-    if (webkit) input.style.width = "1000px";
-    else input.setAttribute("wrap", "off");
-    // If border: 0; -- iOS fails to open keyboard (issue #1287)
-    if (ios) input.style.border = "1px solid black";
-    input.setAttribute("autocorrect", "off");
-    input.setAttribute("autocapitalize", "off");
-    input.setAttribute("spellcheck", "false");
+  Displ(var place, Doc doc, InputStyle input) {
+    this.input = input;
 
-    // Wraps and hides input textarea
-    inputDiv = eltdiv([input], null,
-        "overflow: hidden; position: relative; width: 3px; height: 0px;");
     // Covers bottom-right square when both scrollbars are present.
     scrollbarFiller = eltdiv(null, "CodeMirror-scrollbar-filler");
-    scrollbarFiller.setAttribute("not-content", "true");
+    scrollbarFiller.setAttribute("cm-not-content", "true");
     // Covers bottom of gutter when coverGutterNextToScrollbar is on
     // and h scrollbar is present.
     gutterFiller = eltdiv(null, "CodeMirror-gutter-filler");
-    gutterFiller.setAttribute("not-content", "true");
+    gutterFiller.setAttribute("cm-not-content", "true");
     // Will contain the actual code, positioned to cover the viewport.
     lineDiv = eltdiv(null, "CodeMirror-code");
     // Elements are added to these to represent selection and cursors.
@@ -114,17 +93,10 @@ class Displ implements Display {
     scroller.setAttribute("tabIndex", "-1");
     // The element in which the editor lives.
     wrapper = eltdiv(
-        [inputDiv, scrollbarFiller, gutterFiller, scroller],
+        [scrollbarFiller, gutterFiller, scroller],
         "CodeMirror");
 
-    // Needed to hide big blue blinking cursor on Mobile Safari
-    if (ios) input.style.width = "0px";
-    if (!webkit) scroller.draggable = true;
-    // Needed to handle Tab key in KHTML
-    if (khtml) {
-      inputDiv.style.height = "1px";
-      inputDiv.style.position = "absolute";
-    }
+    if (!webkit && !(gecko && mobile)) scroller.draggable = true;
 
     if (place != null) {
       if (place is Node) place.append(wrapper);
@@ -151,24 +123,12 @@ class Displ implements Display {
     // Used to only resize the line number gutter when necessary (when
     // the amount of lines crosses a boundary that makes its width change)
     lineNumWidth = lineNumInnerWidth = lineNumChars = 0;
-    // See readInput and resetInput
-    prevInput = "";
     // Set to true when a non-horizontal-scrolling line widget is
     // added. As an optimization, line widget aligning is skipped when
     // this is false.
     alignWidgets = false;
-    // Flag that indicates whether we expect input to appear real soon
-    // now (after some event like 'keypress' or 'input') and are
-    // polling intensively.
-    pollingFast = false;
-    // Self-resetting timeout for the poller
-    poll = new Delayed();
 
     cachedCharWidth = cachedTextHeight = 0;
-
-    // Tracks when resetInput has punted to just putting a short
-    // string into the textarea instead of the full selection.
-    inaccurateSelection = false;
 
     // Tracks the maximum line length so that the horizontal scrollbar
     // can be kept static when scrolling.
@@ -185,6 +145,8 @@ class Displ implements Display {
     // Used to track whether anything happened since the context menu
     // was opened.
     selForContextMenu = null;
+    activeTouch = null;
+    input.init(this);
   }
 
   // Computes display.scroller.scrollLeft + display.gutters.offsetWidth,
@@ -224,10 +186,11 @@ class Displ implements Display {
     scrollbars = cm.scrollbarModel[cm.options.scrollbarStyle](
         (node) {
           wrapper.insertBefore(node, cm.display.scrollbarFiller);
+          // Prevent clicks in the scrollbars from killing focus
           cm.on(node, "mousedown", (e) {
-            if (cm.state.focused) setTimeout(cm.focusInput, 0);
+            if (cm.state.focused) setTimeout(() { cm.display.input.focus(); }, 0);
           });
-          node.setAttribute("not-content", "true");
+          node.setAttribute("cm-not-content", "true");
         },
         (pos, axis) {
           if (axis == "horizontal") cm.setScrollLeft(pos);
@@ -316,13 +279,18 @@ class Displ implements Display {
     return new Span(from,  max(to, from + 1));
   }
 
+  void updateSelection(cm) {
+    cm.display.input.showSelection(cm.display.input.prepareSelection());
+  }
+
   // Redraw the selection and/or cursor
-  DrawnSelection drawSelection(cm) {
-    var display = cm.display, doc = cm.doc, result = new DrawnSelection();
+  DrawnSelection prepareSelection(cm, [primary]) {
+    var doc = cm.doc, result = new DrawnSelection();
     var curFragment = result.cursors = document.createDocumentFragment();
     var selFragment = result.selection = document.createDocumentFragment();
 
     for (var i = 0; i < doc.sel.ranges.length; i++) {
+      if (primary == false && i == doc.sel.primIndex) continue;
       var range = doc.sel.ranges[i];
       var collapsed = range.empty();
       if (collapsed || cm.options.showCursorWhenSelecting)
@@ -330,32 +298,7 @@ class Displ implements Display {
       if (!collapsed)
         drawSelectionRange(cm, range, selFragment);
     }
-
-    // Move the hidden textarea near the cursor to prevent scrolling artifacts
-    if (cm.options.moveInputWithCursor) {
-      var headPos = cm.cursorCoords(doc.sel.primary().head, "div");
-      var wrapOff = display.wrapper.getBoundingClientRect();
-      var lineOff = display.lineDiv.getBoundingClientRect();
-      result.teTop = max(0, min(display.wrapper.clientHeight - 10,
-                                headPos.top + lineOff.top - wrapOff.top));
-      result.teLeft = max(0, min(display.wrapper.clientWidth - 10,
-                                 headPos.left + lineOff.left - wrapOff.left));
-    }
-
     return result;
-  }
-
-  showSelection(cm, drawn) {
-    removeChildrenAndAdd(cm.display.cursorDiv, drawn.cursors);
-    removeChildrenAndAdd(cm.display.selectionDiv, drawn.selection);
-    if (drawn.teTop != null) {
-      cm.display.inputDiv.style.top = "${drawn.teTop}px";
-      cm.display.inputDiv.style.left = "${drawn.teLeft}px";
-    }
-  }
-
-  updateSelection(cm) {
-    showSelection(cm, drawSelection(cm));
   }
 
   // Draws a cursor for the given range
@@ -617,12 +560,13 @@ class Displ implements Display {
     return -1;
   }
 
-  LineWidget addLineWidget(CodeEditor cm, dynamic handle, Node node,
+  LineWidget addLineWidget(Document doc, dynamic handle, Node node,
                            LineWidgetOptions options) {
     // handle may be int or LineHandle
-    var widget = new LineWidget(cm, node, options);
-    if (widget.noHScroll) cm.display.alignWidgets = true;
-    cm.doc.changeLine(handle, "widget", (Line line) {
+    var widget = new LineWidget(doc, node, options);
+    var cm = doc.cm;
+    if (cm != null && widget.noHScroll) cm.display.alignWidgets = true;
+    doc.changeLine(handle, "widget", (Line line) {
       if (line.widgets == null) line.widgets = [];
       var widgets = line.widgets;
       if (widget.insertAt == -1) {
@@ -631,8 +575,8 @@ class Displ implements Display {
         widgets.insert(min(widgets.length-1, max(0, widget.insertAt)), widget);
       }
       widget.line = line;
-      if (!line.isHidden()) {
-        var aboveVisible = cm.doc.heightAtLine(line) < cm.doc.scrollTop;
+      if (cm != null && !line.isHidden()) {
+        var aboveVisible = doc.heightAtLine(line) < doc.scrollTop;
         line.updateLineHeight(line.height + widget.widgetHeight());
         if (aboveVisible) cm.addToScrollPos(null, widget.height);
         cm.curOp.forceUpdate = true;
@@ -739,10 +683,10 @@ class Displ implements Display {
       updateScrollbars(cm, barMeasure);
     }
 
-    cm.signalLater(cm, "update", cm);
+    update.signal(cm, "update", cm);
     if (cm.display.viewFrom != cm.display.reportedViewFrom ||
         cm.display.viewTo != cm.display.reportedViewTo) {
-      cm.signalLater(cm, "viewportChange", cm, cm.display.viewFrom, cm.display.viewTo);
+      update.signal(cm, "viewportChange", cm, cm.display.viewFrom, cm.display.viewTo);
       cm.display.reportedViewFrom = cm.display.viewFrom;
       cm.display.reportedViewTo = cm.display.viewTo;
     }
@@ -757,6 +701,7 @@ class Displ implements Display {
       updateSelection(cm);
       setDocumentHeight(barMeasure);
       updateScrollbars(cm, barMeasure);
+      update.finish();
     }
   }
 
@@ -849,7 +794,7 @@ class Displ implements Display {
     for (var i = 0; i < view.length; i++) {
       var lineView = view[i];
       if (lineView.hidden) {
-      } else if (lineView.node == null) { // Not drawn yet
+      } else if (lineView.node == null || lineView.node.parentNode != container) { // Not drawn yet
         var node = lineView.buildLineElement(cm, lineN, dims);
         container.insertBefore(node, cur);
       } else { // Already drawn
@@ -929,7 +874,7 @@ class LineView {
       if (type == "text") updateLineText(cm);
       else if (type == "gutter") updateLineGutter(cm, lineN, dims);
       else if (type == "class") updateLineClasses();
-      else if (type == "widget") updateLineWidgets(dims);
+      else if (type == "widget") updateLineWidgets(cm, dims);
     }
     changes = null;
   }
@@ -1015,12 +960,13 @@ class LineView {
     if (cm.options.lineNumbers || markers != null) {
       var wrap = ensureLineWrapped();
       var gutterWrap = gutter =
-        wrap.insertBefore(eltdiv(null, "CodeMirror-gutter-wrapper", "left: " +
-                      (cm.options.fixedGutter
-                          ? dims.fixedPos
-                          : -dims.gutterTotalWidth).toString() +
-                      "px; width: ${dims.gutterTotalWidth}px"),
-                  text);
+          eltdiv(null, "CodeMirror-gutter-wrapper", "left: " +
+            (cm.options.fixedGutter
+                ? dims.fixedPos
+                : -dims.gutterTotalWidth).toString() +
+            "px; width: ${dims.gutterTotalWidth}px");
+      cm.display.input.setUneditable(gutterWrap);
+      wrap.insertBefore(gutterWrap, text);
       if (line.gutterClass != null)
         gutterWrap.className += " " + line.gutterClass;
       if (cm.options.lineNumbers &&
@@ -1042,7 +988,7 @@ class LineView {
     }
   }
 
-  void updateLineWidgets(Dimensions dims) {
+  void updateLineWidgets(CodeEditor cm, Dimensions dims) {
     alignable = null;
     var next;
     for (var child = node.firstChild; child != null; child = next) {
@@ -1050,7 +996,7 @@ class LineView {
       if (child.className == "CodeMirror-linewidget")
         child.remove();
     }
-    insertLineWidgets(dims);
+    insertLineWidgets(cm, dims);
   }
 
   // Build a line's DOM representation from scratch
@@ -1062,28 +1008,29 @@ class LineView {
 
     updateLineClasses();
     updateLineGutter(cm, lineN, dims);
-    insertLineWidgets(dims);
+    insertLineWidgets(cm, dims);
     return node;
   }
 
   // A lineView may contain multiple logical lines (when merged by
   // collapsed spans). The widgets for all of them need to be drawn.
-  void insertLineWidgets(Dimensions dims) {
-    insertLineWidgetsFor(line, dims, true);
+  void insertLineWidgets(CodeEditor cm, Dimensions dims) {
+    insertLineWidgetsFor(cm, line, dims, true);
     if (rest != null) {
       for (var i = 0; i < rest.length; i++) {
-        insertLineWidgetsFor(rest[i], dims, false);
+        insertLineWidgetsFor(cm, rest[i], dims, false);
       }
     }
   }
 
-  void insertLineWidgetsFor(Line line, Dimensions dims, bool allowAbove) {
+  void insertLineWidgetsFor(CodeEditor cm, Line line, Dimensions dims, bool allowAbove) {
     if (line.widgets == null) return;
     var wrap = ensureLineWrapped();
     for (var i = 0, ws = line.widgets; i < ws.length; ++i) {
       var widget = ws[i], node = eltdiv([widget.node], "CodeMirror-linewidget");
       if (!widget.handleMouseEvents) _doIgnoreEvents(node);
       positionLineWidget(widget, node, dims);
+      cm.display.input.setUneditable(node);
       if (allowAbove && widget.above)
         wrap.insertBefore(node, gutter == null ? text : gutter);
       else
@@ -1117,14 +1064,15 @@ class LineView {
 
 // Line widgets are block elements displayed above or below a line.
 class LineWidget extends Object with EventManager {
-  CodeEditor cm;
+  CodeEditor cm; // TODO Remove
+  Document doc;
   Element node;
   Line line;
   num height;
   bool coverGutter, noHScroll, above, handleMouseEvents;
   var insertAt;
 
-  LineWidget(this.cm, this.node, LineWidgetOptions options) {
+  LineWidget(this.doc, this.node, LineWidgetOptions options) {
     if (options == null) {
       // TODO Remove this branch.
       coverGutter = false;
@@ -1141,9 +1089,10 @@ class LineWidget extends Object with EventManager {
     }
   }
 
-  OperationGroup get operationGroup => cm.operationGroup;
+  OperationGroup get operationGroup => doc.cm.operationGroup;
 
   void clear() {
+    var cm = doc.cm;
     var ws = line.widgets;
     int no = line.lineNo();
     if (no == -1 || ws == null) return;
@@ -1152,26 +1101,33 @@ class LineWidget extends Object with EventManager {
     }
     if (ws.length == 0) line.widgets = null;
     var height = widgetHeight();
-    cm.runInOp(cm, () {
-      cm.adjustScrollWhenAboveVisible(line, -height);
-      cm.regLineChange(no, "widget");
-      line.updateLineHeight(max(0, line.height - height));
-    });
+    line.updateLineHeight(max(0, line.height - height));
+    if (cm != null) {
+      cm.runInOp(cm, () {
+        cm.adjustScrollWhenAboveVisible(line, -height);
+        cm.regLineChange(no, "widget");
+      });
+    }
   }
-  changed() {
+  void changed() {
+    var cm = doc.cm;
     var oldH = height;
     height = null;
     var diff = widgetHeight() - oldH;
     if (diff == 0) return;
-    cm.runInOp(cm, () {
-      cm.curOp.forceUpdate = true;
-      cm.adjustScrollWhenAboveVisible(line, diff);
-      line.updateLineHeight(line.height + diff);
-    });
+    line.updateLineHeight(line.height + diff);
+    if (cm != null) {
+      cm.runInOp(cm, () {
+        cm.curOp.forceUpdate = true;
+        cm.adjustScrollWhenAboveVisible(line, diff);
+      });
+    }
   }
 
   widgetHeight() {
     if (height != null) return height;
+    var cm = doc.cm;
+    if (cm == null) return 0;
     if (!contains(document.body, node)) {
       var parentStyle = "position: relative;";
       if (coverGutter)
@@ -1297,7 +1253,7 @@ class Dimensions {
              this.wrapperWidth);
 }
 
-class DisplayUpdate {
+class DisplayUpdate extends Object with EventManager {
   Displ display;
   Viewport viewport;
   // Store some values that we'll need later (but don't want to force a relayout for)
@@ -1308,6 +1264,7 @@ class DisplayUpdate {
   var oldDisplayWidth;
   bool force;
   Dimensions dims;
+  List<Function> events;
 
   DisplayUpdate(CodeEditor cm, viewport, [bool force = false]) {
     this.display = cm.display;
@@ -1320,6 +1277,25 @@ class DisplayUpdate {
     this.oldDisplayWidth = display.displayWidth();
     this.force = force;
     this.dims = cm.display.getDimensions(cm);
+    this.events = [];
+  }
+
+  OperationGroup get operationGroup => display.input.cm.operationGroup;
+
+  void signal(dynamic emitter, String type, [a1 = _x, a2 = _x, a3 = _x, a4 = _x]) {
+    // Adapted from signalLater()
+    var arr;
+    if (emitter._handlers != null) arr = emitter._handlers[type];
+    if (arr == null) return;
+    bnd(f) { return bind(f, a1, a2, a3, a4); };
+    for (var i = 0; i < arr.length; ++i) {
+      events.add(bnd(arr[i]));
+    }
+  }
+
+  void finish() {
+    // Adapted from fireOrphanDelayed()
+    for (var i = 0; i < events.length; ++i) events[i]();
   }
 }
 
@@ -1354,6 +1330,7 @@ class LineContent {
 class DrawnSelection {
   Node cursors, selection;
   num teTop, teLeft;
+  bool focus = false;
 }
 
 class ScrollMeasure {

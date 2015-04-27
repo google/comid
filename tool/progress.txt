@@ -6,7 +6,7 @@ Testing coverage
 Got 75% coverage a few times but cannot reliably reproduce it.
 
 
-Test results
+Test results, version 4.12.1
 JS results are the same whether minified or not
 
 Dartium (native): all pass
@@ -16,6 +16,11 @@ Safari(JS, minified): 4 failures, "Scrolling, movedown_hscroll_fixed",
   "Scrolling, moveright_scroll_wrap"
 Firefox(JS, minified): 1 failure, "CodeEditor, markTextCSS"
 
+Test update, version 5.0.1
+Dartium (native): all pass
+Chrome (JS): all pass
+Safari (JS): all pass
+Firefox (JS): all pass
 
 TODO test
 hint/xml-hint.js

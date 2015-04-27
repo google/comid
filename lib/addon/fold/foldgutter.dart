@@ -83,12 +83,12 @@ FoldOptions parseOptions(var optsIn) {
   return opts;
 }
 
-bool isFolded(CodeMirror cm, line) {
+TextMarker isFolded(CodeMirror cm, line) {
   var marks = cm.findMarksAt(new Pos(line));
   for (var i = 0; i < marks.length; ++i) {
-    if (marks[i].isFold && marks[i].find().from.line == line) return true;
+    if (marks[i].isFold && marks[i].find().from.line == line) return marks[i];
   }
-  return false;
+  return null;
 }
 
 Element marker(spec) {
@@ -107,7 +107,7 @@ void updateFoldInfo(CodeMirror cm, from, to) {
   var func = foldOption(cm, opts, "rangeFinder");
   cm.doc.eachLine(from, to, (line) {
     var mark = null;
-    if (isFolded(cm, cur)) {
+    if (isFolded(cm, cur) != null) {
       mark = marker(opts.indicatorFolded);
     } else {
       var pos = new Pos(cur, 0);
@@ -130,20 +130,28 @@ void updateInViewport(CodeMirror cm) {
 }
 
 void onGutterClick(CodeMirror cm, line, gutter, MouseEvent e) {
-  var opts = cm.state.foldGutter.options;
+  var state = cm.state.foldGutter;
+  if (state == null) return;
+  var opts = state.options;
   if (gutter != opts.gutter) return;
-  foldCode(cm, new Pos(line, 0), opts.rangeFinder);
+  var folded = isFolded(cm, line);
+  if (folded != null) folded.clear();
+  else foldCode(cm, new Pos(line, 0), opts.rangeFinder);
 }
 
 void onChange(CodeMirror cm, Change change) {
-  var state = cm.state.foldGutter, opts = cm.state.foldGutter.options;
+  var state = cm.state.foldGutter;
+  if (state == null) return;
+  var opts = state.options;
   state.from = state.to = 0;
   clearTimeout(state.changeUpdate);
   state.changeUpdate = setTimeout(() { updateInViewport(cm); }, opts.foldOnChangeTimeSpan);
 }
 
 void onViewportChange(CodeMirror cm, int from, int to) {
-  var state = cm.state.foldGutter, opts = cm.state.foldGutter.options;
+  var state = cm.state.foldGutter;
+  if (state == null) return;
+  var opts = state.options;
   clearTimeout(state.changeUpdate);
   state.changeUpdate = setTimeout(() {
     var vp = cm.getViewport();
@@ -165,7 +173,9 @@ void onViewportChange(CodeMirror cm, int from, int to) {
 }
 
 void onFold(CodeMirror cm, Pos from, Pos to) {
-  var state = cm.state.foldGutter, line = from.line;
+  var state = cm.state.foldGutter;
+  if (state == null) return;
+  var line = from.line;
   if (line >= state.from && line < state.to)
     updateFoldInfo(cm, line, line + 1);
 }

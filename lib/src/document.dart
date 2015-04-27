@@ -1128,6 +1128,16 @@ class Document extends BranchChunk with EventManager implements Doc {
     })();
   }
 
+  LineWidget addLineWidget(dynamic handle, Node node,
+      {coverGutter: false, noHScroll: false,
+      above: false, handleMouseEvents: false, insertAt: -1}) {
+    return cm.addLineWidget(handle, node, coverGutter: coverGutter,
+        noHScroll: noHScroll, above: above, handleMouseEvents: handleMouseEvents,
+        insertAt: insertAt);
+  }
+
+  void removeLineWidget(LineWidget widget) { cm.removeLineWidget(widget); }
+
   AbstractTextMarker markText(Pos from, Pos to, [TextMarkerOptions options]) {
     return _markText(this, clipPos(from), clipPos(to), options, "range");
   }
@@ -1138,6 +1148,7 @@ class Document extends BranchChunk with EventManager implements Doc {
     realOpts.insertLeft = options.insertLeft;
     realOpts.clearWhenEmpty = false;
     realOpts.shared = options.shared;
+    realOpts.handleMouseEvents = options.handleMouseEvents;
     pos = clipPos(pos);
     return _markText(this, pos, pos, realOpts, "bookmark");
   }
@@ -1315,7 +1326,7 @@ class Document extends BranchChunk with EventManager implements Doc {
     var out = [], n = start.line;
     iter(start.line, end.line + 1, (Line line) {
       var text = line.text;
-      if (n == end.line) text = text.substring(0, end.char);
+      if (n == end.line) text = text.substring(0, min(text.length, end.char));
       if (n == start.line) text = text.substring(start.char);
       out.add(text);
       ++n;
@@ -1712,12 +1723,13 @@ class Document extends BranchChunk with EventManager implements Doc {
   }
 
   // Find a line view that corresponds to the given line number.
-  findViewForLine(int lineN) {
+  LineView findViewForLine(int lineN) {
     if (lineN >= cm.display.viewFrom && lineN < cm.display.viewTo)
       return cm.display.view[cm.display.findViewIndex(lineN)];
     var ext = cm.display.externalMeasured;
     if (ext != null && lineN >= ext.lineN && lineN < ext.lineN + ext.size)
       return ext;
+    return null;
   }
 
   // Measurement can be split in two steps, the set-up work that
@@ -1766,9 +1778,7 @@ class Document extends BranchChunk with EventManager implements Doc {
 
   static final Rect nullRect = new Rect(left: 0, right: 0, top: 0, bottom: 0);
 
-  measureCharInner(LineMeasurement prepared, int ch, String bias) {
-    var map = prepared.map;
-
+  CoverNode nodeAndOffsetInLineMap(map, int ch, String bias) {
     Node node;
     var start, end;
     String collapse;
@@ -1807,6 +1817,13 @@ class Document extends BranchChunk with EventManager implements Doc {
         break;
       }
     }
+    return new CoverNode(node, start, end, collapse, mStart, mEnd);
+  }
+
+  measureCharInner(LineMeasurement prepared, int ch, String bias) {
+    var place = nodeAndOffsetInLineMap(prepared.map, ch, bias);
+    var node = place.node, start = place.start;
+    var end = place.end, collapse = place.collapse;
 
     var rect;
     if (node.nodeType == 3) {
@@ -1815,15 +1832,19 @@ class Document extends BranchChunk with EventManager implements Doc {
         // Retry a maximum of 4 times when nonsense rectangles are returned
         var prepLine = prepared.line.text;
         var prepLineLen = prepLine.length;
-        while (start > 0 && mStart + start + 1 <= prepLineLen &&
-            isExtendingChar(prepLine.substring(mStart + start, mStart + start + 1))) {
+        while (start > 0 && place.coverStart + start + 1 <= prepLineLen &&
+            isExtendingChar(prepLine.substring(place.coverStart + start,
+                                               place.coverStart + start + 1))) {
           --start;
         }
-        while (mStart + end < mEnd && mStart + end + 1 <= prepLineLen &&
-            isExtendingChar(prepLine.substring(mStart + end, mStart + end + 1))) {
+        while (place.coverStart + end < place.coverEnd &&
+            place.coverStart + end + 1 <= prepLineLen &&
+            isExtendingChar(prepLine.substring(place.coverStart + end,
+                                               place.coverStart + end + 1))) {
           ++end;
         }
-        if (ie && ie_version < 9 && start == 0 && end == mEnd - mStart) {
+        if (ie && ie_version < 9 && start == 0 &&
+            end == place.coverEnd - place.coverStart) {
           rect = (node.parentNode as Element).getBoundingClientRect();
         } else if (ie && cm.options.lineWrapping) {
           var rects = range(node, start, end).getClientRects();
@@ -2585,11 +2606,6 @@ class Document extends BranchChunk with EventManager implements Doc {
   }
 }
 
-// Collapsed markers have unique ids, in order to be able to order
-// them, which is needed for uniquely determining an outer marker
-// when they overlap (they may nest, but not partially overlap).
-var nextMarkerId = 0;
-
 // Create a marker, wire it up to the right lines
 AbstractTextMarker _markText(Document doc, from, to, TextMarkerOptions options, type) {
   // Shared markers (across linked documents) are handled separately
@@ -2655,7 +2671,6 @@ AbstractTextMarker _markText(Document doc, from, to, TextMarkerOptions options, 
       doc.clearHistory();
   }
   if (marker.collapsed) {
-    marker.id = ++nextMarkerId;
     marker.atomic = true;
   }
   if (cm != null) {
@@ -2809,6 +2824,8 @@ abstract class AbstractTextMarker extends Object with EventManager {
 // marker continues beyond the start/end of the line. Markers have
 // links back to the lines they currently touch.
 class TextMarker extends AbstractTextMarker {
+  static int nextMarkerId = 0;
+
   int id;
   List<Line> lines;
   String type; // 'range' or 'bookmark'
@@ -2833,6 +2850,7 @@ class TextMarker extends AbstractTextMarker {
 
   TextMarker(this.doc, this.type, TextMarkerOptions options) {
     this.lines = [];
+    this.id = ++nextMarkerId;
     if (options != null) {
       collapsed = options.collapsed;
       clearWhenEmpty = options.clearWhenEmpty;
@@ -3354,5 +3372,12 @@ class LineMap {
 class BookmarkOptions {
   Node widget;
   bool insertLeft, shared;
-  BookmarkOptions({this.widget, this.insertLeft: false, this.shared: false});
+  bool handleMouseEvents;
+  BookmarkOptions({this.widget, this.insertLeft: false, this.shared: false,
+    this.handleMouseEvents: false});
+}
+
+class CoverNode {
+  var node, start, end, collapse, coverStart, coverEnd, offset;
+  CoverNode(this.node, this.start, this.end, this.collapse, this.coverStart, this.coverEnd);
 }

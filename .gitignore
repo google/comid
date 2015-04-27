@@ -1,5 +1,12 @@
-.DS_Store
+/node_modules
+/npm-debug.log
+/test*.html
+.tern-*
+*~
+*.swp
 .idea
+*.iml
+.DS_Store
 .pub/
 build/
 packages

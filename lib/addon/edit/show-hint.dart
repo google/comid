@@ -24,6 +24,19 @@ var RANGE = 500;
 //  return cm.showHint(newOpts);
 //};
 
+var asyncRunID = 0;
+retrieveHints(getter, cm, completion, then) {
+  if (completion.options.async) {
+    var id = ++asyncRunID;
+    // Note that last two args are swapped w.r.t. CodeMirror
+    getter(cm, completion.options, (hints) {
+      if (asyncRunID == id) then(hints);
+    });
+  } else {
+    then(getter(cm, completion.options));
+  }
+}
+
 void showHint([CodeMirror cm, CompletionOptions options]) {
   if (cm == null) return null;
   // We want a single cursor position.
@@ -41,11 +54,7 @@ void showHint([CodeMirror cm, CompletionOptions options]) {
   }
 
   cm.signal(cm, "startCompletion", cm);
-  if (completion.options.async) {
-    getHints(cm, completion.options, (hints) { completion.showHints(hints); });
-  } else {
-    return completion.showHints(getHints(cm, completion.options));
-  }
+  return retrieveHints(getHints, cm, completion, (hints) { completion.showHints(hints); });
 }
 
 initialize() {
@@ -147,11 +156,7 @@ class Completion {
     update(num x) {
       if (finished) return;
       cm.signal(data, "update");
-      var getHints = completion.options.hint;
-      if (completion.options.async)
-        getHints(completion.cm, completion.options, finishUpdate);
-      else
-        finishUpdate(getHints(completion.cm, completion.options));
+      retrieveHints(completion.options.hint, completion.cm, completion, finishUpdate);
     }
 
     clearDebounce() {

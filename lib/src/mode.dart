@@ -35,6 +35,7 @@ class Mode {
 
   bool get flattenSpans => throw new StateError("flattenSpans not defined");
   bool get opaque => false;
+  Object get closeBrackets => null;
 
   void blankLine(dynamic state) {
   }

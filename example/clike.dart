@@ -51,6 +51,8 @@ main() {
     'extraKeys': {"Ctrl-Q": ([cm]){ fold.foldCode(cm, cm.getCursor()); }},
     'mode': "text/x-scala"
   });
+  cEditor.runtimeType; cppEditor.runtimeType; javaEditor.runtimeType;
+  objectivecEditor.runtimeType; scalaEditor.runtimeType;
   //var mac = CodeMirror.keyMap.default == CodeMirror.keyMap.macDefault;
   //CodeMirror.keyMap.default[(mac ? "Cmd" : "Ctrl") + "-Space"] = "autocomplete";
 }

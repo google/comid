@@ -22,6 +22,12 @@ initialize() {
     var inner = cm.innerMode(cm.doc.getMode(), token.state);
     if (inner.mode.name != "css") return null;
 
+    if (token.type == "keyword" && "!important".indexOf(token.string) == 0)
+      return new ProposalList(
+          list: ["!important"],
+          from: new Pos(cur.line, token.start),
+          to: new Pos(cur.line, token.end));
+
     var start = token.start, end = cur.char;
     var word = token.string.substring(0, end - start);
     if (new RegExp(r'[^\w$_-]').hasMatch(word)) {

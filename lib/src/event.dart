@@ -22,6 +22,7 @@ abstract class EventManager {
   Stream get onMarkerAdded => onEvent('markerAdded', 2);
   Stream get onCursorActivity => onEvent('cursorActivity', 1);
   Stream get onOverwriteToggle => onEvent('overwriteToggle', 2);
+  Stream get onMousedown => onEvent('mousedown', 2); // onMouseDown is taken
 
   Stream onEvent(String eventName, [int argCount = 0]) {
     if (_handlers == null) _handlers = {};

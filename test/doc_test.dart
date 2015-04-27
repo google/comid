@@ -388,7 +388,7 @@ void testDoc(String spec, Function run, [Map opts=null]) {
 //
 List instantiateSpec(String spec, Map options) {
   Element place = document.getElementById("testground");
-  var names = {}, pos = 0, l = spec.length, editors = [];
+  var names = {}, editors = [];
   while (!spec.isEmpty) {
     var re = new RegExp(r"^(\w+)(\*?)(?:='([^\']*)'|<(~?)(\w+)(?:\/(\d+)-(\d+))?)\s*");
     Match m = re.firstMatch(spec);

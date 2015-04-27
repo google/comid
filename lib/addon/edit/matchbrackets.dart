@@ -12,7 +12,9 @@ var matching = {"(": ")>", ")": "(<", "[": "]>", "]": "[<", "{": "}>", "}": "{<"
 findMatchingBracket(CodeMirror cm, Pos where, bool strict, MatchLimits config) {
   var line = cm.getLineHandle(where.line);
   var pos = where.char - 1;
-  String match = pos >= 0 ? matching[line.text.substring(pos, pos + 1)] : null;
+  String match = pos >= 0 && pos < line.text.length
+      ? matching[line.text.substring(pos, pos + 1)]
+      : null;
   if (match == null && ++pos < line.text.length) {
     match = matching[line.text.substring(pos, pos + 1)];
   }
