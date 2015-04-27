@@ -149,8 +149,10 @@ Overlay makeOverlay(String query, RegExp hasBoundary, style) {
 //// from matchonscrollbar
 
 //  CodeMirror.defineExtension("showMatchesOnScrollbar", function(query, caseFold, className) {
-showMatchesOnScrollbar(CodeMirror cm, query, caseFold, [String className]) {
-  return new SearchAnnotation(cm, query, caseFold, className);
+showMatchesOnScrollbar(CodeMirror cm, query, caseFold, [options]) {
+  if (options is String) options = new AnnotateOptions(className: options);
+  if (options == null) options = new AnnotateOptions();
+  return new SearchAnnotation(cm, query, caseFold, options);
 }
 
 class SearchAnnotation {
@@ -163,9 +165,11 @@ class SearchAnnotation {
   var update;
   var changeHandler;
 
-  SearchAnnotation(CodeMirror cm, query, bool caseFold, [String className]) {
+  SearchAnnotation(CodeMirror cm, query, bool caseFold, AnnotateOptions options) {
     this.cm = cm;
-    this.annotation = annotateScrollbar(cm, className == null ? DEFAULT_SEARCH_MATCH_CLASS_NAME : className);
+    if (options.listenForChanges == null) options.listenForChanges = false;
+    if (options.className == null) options.className = DEFAULT_SEARCH_MATCH_CLASS_NAME;
+    this.annotation = annotateScrollbar(cm, options);
     this.query = query;
     this.caseFold = caseFold;
     this.gap = new Span(cm.firstLine(), cm.lastLine() + 1);
@@ -246,29 +250,53 @@ Annotation annotateScrollbar(CodeMirror cm, className) {
 
 class Annotation {
   CodeMirror cm;
-  String className;
+  AnnotateOptions options;
+  int buttonHeight;
   List annotations;
   DivElement div;
   Function resizeHandler;
+  Function changeHandler;
   num hScale;
+  var doRedraw;
+  var doUpdate;
 
-  Annotation(CodeMirror cm, String className) {
+  Annotation(CodeMirror cm, var options) {
+    if (options is String) options = new AnnotateOptions(className: options);
     this.cm = cm;
-    this.className = className;
+    this.options = options as AnnotateOptions;
+    this.buttonHeight = options.scrollButtonHeight;
+    if (this.buttonHeight == 0) {
+      this.buttonHeight = cm.getOption("scrollButtonHeight");
+    }
     this.annotations = [];
+    this.doRedraw = this.doUpdate = null;
     this.div = cm.getWrapperElement().append(document.createElement("div"));
 
     div.style.cssText = "position: absolute; right: 0; top: 0; z-index: 7; pointer-events: none";
     computeScale();
-    resizeHandler = () {
-      if (computeScale()) redraw();
-    };
-    cm.on(cm, "refresh", resizeHandler);
+
+    scheduleRedraw(delay) {
+      clearTimeout(this.doRedraw);
+      this.doRedraw = setTimeout(() { this.redraw(); }, delay);
+    }
+
+    cm.on(cm, "refresh", resizeHandler = () {
+      clearTimeout(doUpdate);
+      doUpdate = setTimeout(() {
+        if (computeScale()) scheduleRedraw(20);
+      }, 100);
+    });
+    cm.on(cm, "markerAdded", resizeHandler);
+    cm.on(cm, "markerCleared", resizeHandler);
+    if (options.listenForChanges != false)
+      cm.on(cm, "change", changeHandler = () {
+        scheduleRedraw(250);
+      });
   }
 
   bool computeScale() {
     var cm = this.cm;
-    var hScale = (cm.getWrapperElement().clientHeight - cm.display.barHeight) /
+    var hScale = (cm.getWrapperElement().clientHeight - cm.display.barHeight - buttonHeight * 2) /
       cm.heightAtLine(cm.lastLine() + 1, "local");
     if (hScale != this.hScale) {
       this.hScale = hScale;
@@ -282,35 +310,49 @@ class Annotation {
     redraw();
   }
 
-  void redraw() {
+  void redraw([compute]) {
+    if (compute != false) this.computeScale();
     var cm = this.cm, hScale = this.hScale;
-    if (cm.display.barWidth == 0) return;
 
     var frag = document.createDocumentFragment(), anns = this.annotations;
     num nextTop = 0;
-    for (var i = 0; i < anns.length; i++) {
-      var ann = anns[i];
-      var top = nextTop;
-      if (top == 0) top = cm.charCoords(ann.from, "local").top * hScale;
-      var bottom = cm.charCoords(ann.to, "local").bottom * hScale;
-      while (i < anns.length - 1) {
-        nextTop = cm.charCoords(anns[i + 1].from, "local").top * hScale;
-        if (nextTop > bottom + .9) break;
-        ann = anns[++i];
-        bottom = cm.charCoords(ann.to, "local").bottom * hScale;
-      }
-      var height = max(bottom - top, 3);
+    if (cm.display.barWidth != 0) {
+      for (var i = 0; i < anns.length; i++) {
+        var ann = anns[i];
+        var top = nextTop;
+        if (top == 0) top = cm.charCoords(ann.from, "local").top * hScale;
+        var bottom = cm.charCoords(ann.to, "local").bottom * hScale;
+        while (i < anns.length - 1) {
+          nextTop = cm.charCoords(anns[i + 1].from, "local").top * hScale;
+          if (nextTop > bottom + .9) break;
+          ann = anns[++i];
+          bottom = cm.charCoords(ann.to, "local").bottom * hScale;
+        }
+        if (bottom == top) continue;
+        var height = max(bottom - top, 3);
 
-      DivElement elt = frag.append(document.createElement("div"));
-      elt.style.cssText = "position: absolute; right: 0px; width: ${max(cm.display.barWidth - 1, 2)}px; top: ${top}px; height: ${height}px";
-      elt.className = this.className;
+        DivElement elt = frag.append(document.createElement("div"));
+        elt.style.cssText = "position: absolute; right: 0px; width: ${max(cm.display.barWidth - 1, 2)}px; top: ${top + buttonHeight}px; height: ${height}px";
+        elt.className = options.className;
+      }
     }
-//    div.textContent = "";
+    div.text = "";
     div.append(frag);
   }
 
   void clear() {
     cm.off(cm, "refresh", resizeHandler);
+    cm.off(cm, "markerAdded", resizeHandler);
+    cm.off(cm, "markerCleared", resizeHandler);
+    if (changeHandler != null) cm.off(cm, "change", changeHandler);
     div.remove();
   }
+}
+
+class AnnotateOptions {
+  String className;
+  bool listenForChanges;
+  int scrollButtonHeight;
+
+  AnnotateOptions({this.className, this.listenForChanges, this.scrollButtonHeight});
 }

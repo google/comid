@@ -534,7 +534,7 @@ editorTest() {
     test('deleteSpanCollapsedInclusiveLeft', () {
       editor = makeEditor({'value': "abc\nX\ndef"});
       var from = new Pos(1, 0), to = new Pos(1, 1);
-      var m = editor.markText(from, to, collapsed: true, inclusiveLeft: true);
+      editor.markText(from, to, collapsed: true, inclusiveLeft: true);
       // Delete collapsed span.
       editor.replaceRange("", from, to);
       expect(editor.getValue(), "abc\n\ndef");
@@ -545,15 +545,18 @@ editorTest() {
       present() {
         List<SpanElement> spans = getElementsByTagName(editor.display.lineDiv, "span");
         for (var i = 0; i < spans.length; i++) {
-          if (spans[i].style.color == "rgb(0, 255, 255)" && spans[i].text == "cdef")
+          window.console.debug(spans[i].style.color);
+          if ((spans[i].style.color == "rgb(0, 255, 255)" ||
+              // Added test for "cyan" to make Firefox happy.
+              spans[i].style.color == "cyan") && spans[i].text == "cdef")
             return true;
         }
         return false;
       }
       var m = editor.markText(new Pos(0, 2), new Pos(0, 6), css: "color: cyan");
-      expect(present(), isTrue);
+      expect(present(), isTrue, reason: 'mark not found');
       m.clear();
-      expect(present(), isFalse);
+      expect(present(), isFalse,reason: 'mark not cleared');
     });
 
     test('bookmark', () {
@@ -618,7 +621,7 @@ editorTest() {
     test('multiBookmarkCursor', () {
       editor = makeEditor({'value': "abcdefg"});
       if (phantom) return;
-      var ms = [], m;
+      var ms = [];
       add(insertLeft) {
         for (var i = 0; i < 3; ++i) {
           var node = document.createElement("span");
@@ -647,6 +650,8 @@ editorTest() {
       m1.clear();
       m3.clear();
       expect(editor.getAllMarks().length, 2);
+      m2.clear();
+      m4.clear();
     });
 
     test('setValueClears', () {
@@ -730,7 +735,7 @@ editorTest() {
 
     test('selectionPos', () {
       editor = makeEditor(null);
-      if (phantom) return;
+      if (phantom || editor.getOption("inputStyle") != "textarea") return;
       editor.setSize(100, 100);
       addDoc(editor, 200, 100);
       editor.setSelection(new Pos(1, 100), new Pos(98, 100));
@@ -864,6 +869,7 @@ editorTest() {
 
     test('collapsedRangeBetweenLinesSelected', () {
       editor = makeEditor({'value': "one\ntwo"});
+      if (editor.getOption("inputStyle") != "textarea") return;
       SpanElement widget = document.createElement("span");
       widget.text = "\u2194";
       editor.markText(new Pos(0, 3), new Pos(1, 0), replacedWith: widget);
@@ -1014,6 +1020,7 @@ editorTest() {
       expect(editor.getCursor(), new Pos(0, 6));
       editor.commands['goCharRight']();
       expect(editor.getCursor(), new Pos(1, 3));
+      inner1.clear();
     });
 
     test('badNestedFold', () {
@@ -1053,12 +1060,14 @@ editorTest() {
       }
       expect(caught, isNotNull);
       expect(re.hasMatch(caught.message), isTrue);
+      m2.clear();
+      m3.clear();
     });
 
     test('editInFold', () {
       editor = makeEditor();
       addDoc(editor, 4, 6);
-      var m = editor.markText(new Pos(1, 2), new Pos(3, 2), collapsed: true);
+      editor.markText(new Pos(1, 2), new Pos(3, 2), collapsed: true);
       editor.replaceRange("", new Pos(0, 0), new Pos(1, 3));
       editor.replaceRange("", new Pos(2, 1), new Pos(3, 3));
       editor.replaceRange("a\nb\nc\nd", new Pos(0, 1), new Pos(1, 0));
@@ -1187,6 +1196,7 @@ editorTest() {
 
     test('scrollVerticallyAndHorizontally', () {
       editor = makeEditor({'lineNumbers': true});
+      if (editor.getOption("inputStyle") != "textarea") return;
       editor.setSize(100, 100);
       addDoc(editor, 40, 40);
       editor.doc.setCursor(39);
@@ -1440,6 +1450,7 @@ editorTest() {
     test('rtlMovement', () {
       if (ie_lt9) fail('IE9');
       editor = makeEditor(null);
+      if (editor.getOption("inputStyle") != "textarea") return;
       var l = ["خحج", "خحabcخحج", "abخحخحجcd", "abخde", "abخح2342خ1حج", "خ1ح2خح3حxج",
                "خحcd", "1خحcd", "abcdeح1ج", "خمرحبها مها!", "foobarر", "خ ة ق",
                "<img src=\"/בדיקה3.jpg\">"];
@@ -1513,7 +1524,7 @@ editorTest() {
 
     test('scrollEntirelyToRight', () {
       editor = makeEditor();
-      if (phantom) return;
+      if (phantom || editor.getOption("inputStyle") != "textarea") return;
       addDoc(editor, 500, 2);
       editor.setCursor(new Pos(0, 500));
       var wrap = editor.getWrapperElement();
@@ -1529,7 +1540,7 @@ editorTest() {
       var last = editor.charCoords(new Pos(2, 0));
       DivElement node = document.createElement("div");
       node.innerHtml = "hi";
-      var widget = editor.addLineWidget(1, node);
+      editor.addLineWidget(1, node);
       expect(last.top < editor.charCoords(new Pos(2, 0)).top, isTrue, reason: "took up space");
       editor.setCursor(new Pos(1, 1));
       editor.execCommand("goLineDown");
@@ -1545,7 +1556,7 @@ editorTest() {
       try {
         addDoc(editor, 500, 10);
         var node = document.createElement("input");
-        var widget = editor.addLineWidget(1, node);
+        editor.addLineWidget(1, node);
         node.focus();
         expect(document.activeElement, node);
         editor.replaceRange("new stuff", new Pos(1, 0));
@@ -2160,6 +2171,8 @@ editorTest() {
 //        expect(toks[i].string, expect[1]);
 //        i++;
 //      });
+      tokPlus.runtimeType;
+      toks.runtimeType;
     });
 
     test('getTokenTypeAt', () {
@@ -2172,6 +2185,7 @@ editorTest() {
       expect(byClassName(editor.getWrapperElement(), "cm-foo").length, 1);
       tok = editor.getTokenTypeAt(new Pos(0, 6));
 //      expect(tok, "string");
+      tok.runtimeType;
     });
 
     test('resizeLineWidget', () {

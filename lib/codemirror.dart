@@ -21,6 +21,7 @@ part 'src/options.dart';
 part 'src/util.dart';
 part 'src/utilext.dart';
 part 'src/mode.dart';
+part 'src/inputstyle.dart';
 
 typedef void Handler(CodeMirror cm, Object dflt, Object old);
 typedef void CommandHandler([CodeMirror cm]);
@@ -81,7 +82,6 @@ abstract class CodeMirror implements EventManager {
   void guttersChanged();
   void updateSelection();
   void resetModeState();
-  void resetInput();
   void refresh();
   void onBlur(CodeMirror editor);
   void onFocus(CodeMirror editor);
@@ -749,7 +749,7 @@ abstract class Doc implements EventManager {
   set mode(Object m);
   get modeOption;
   get size;
-  get sel;
+  Selection get sel;
   int get scrollTop;
   int get scrollLeft;
   void set scrollTop(int n);
@@ -1225,10 +1225,11 @@ abstract class Doc implements EventManager {
 }
 
 abstract class Display {
-  factory Display(var place, Doc doc) => new Displ(place, doc);
+  factory Display(var place, Doc doc, InputStyle input) {
+    return new Displ(place, doc, input);
+  }
   DivElement get wrapper;
-  TextAreaElement get input;
-  DivElement get inputDiv;
+  InputStyle get input;
   DivElement get scrollbarFiller;
   DivElement get gutterFiller;
   DivElement get lineDiv;
@@ -1258,14 +1259,10 @@ abstract class Display {
   void set lineNumWidth(int n);
   void set lineNumInnerWidth(int n);
   void set lineNumChars(int n);
-  String get prevInput;
   bool get alignWidgets;
-  bool get pollingFast;
-  Delayed get poll;
   int get cachedCharWidth;
   int get cachedTextHeight;
   Padding get cachedPaddingH;
-  bool get inaccurateSelection;
   get maxLine;
   int get maxLineLength;
   bool get maxLineChanged;

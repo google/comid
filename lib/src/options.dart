@@ -71,6 +71,7 @@ class Options {
   int get tabindex => _opts['tabindex'];
   bool get autofocus => _opts['autofocus'];
   String get scrollbarStyle => _opts['scrollbarStyle'];
+  String get inputStyle => _opts['inputStyle'];
 
   // Option for configuration of code completion & folding
   Object get hintOptions => _opts['hintOptions'];
@@ -85,6 +86,7 @@ class Options {
   bool get fullLines => _opts['fullLines'];
   bool get commentBlankLines => _opts['commentBlankLines'];
   bool get indent => _opts['indent'];
+  int get scrollButtonHeight => _opts['scrollButtonHeight'];
 
   // Make sure the gutters options contains the element
   // "CodeMirror-linenumbers" when the lineNumbers option is true.
@@ -151,14 +153,18 @@ class Options {
       cm.regChange();
     }, true);
     option("specialChars", new RegExp(_specialChars), (cm, val, old) {
-      if (!val.contains(r"\t")) { val = val + r"|\t"; }
-      cm.options.specialChars = new RegExp(val, multiLine: true);
-      cm.refresh();
-    }, true);
+      String str = val.pattern;
+      if (!val.hasMatch("\t")) { str += r"|\t"; }
+      cm.state.specialChars = new RegExp(str, multiLine: true);
+      if (old != Init) cm.refresh();
+    });
     option("specialCharPlaceholder", _specialCharPlaceholder, (cm, val, old) {
       cm.refresh();
     }, true);
     option("electricChars", true);
+    option("inputStyle", mobile ? "contenteditable" : "textarea", (cm, val, old) {
+      throw new StateError("inputStyle can not (yet) be changed in a running editor"); // FIXME
+    }, true);
     option("rtlMoveVisually", !windows);
     option("wholeLineUpdateBefore", true);
 
@@ -215,11 +221,11 @@ class Options {
         cm.display.disabled = true;
       } else {
         cm.display.disabled = false;
-        if (val != null) cm.resetInput();
+        if (val != null) cm.display.input.reset();
       }
     });
     option("disableInput", false, (cm, val, old) {
-      if (val != null) cm.resetInput();
+      if (val != null) cm.display.input.reset();
     }, true);
     option("dragDrop", true);
 
@@ -240,13 +246,15 @@ class Options {
     option("maxHighlightLength", 10000, resetModeState, true);
     option("moveInputWithCursor", true, (cm, val, old) {
       if (val != null) {
-        cm.display.inputDiv.style.top = cm.display.inputDiv.style.left = "0";
+        cm.display.input.resetPosition();
       }
     });
 
     option("tabindex", null, (cm, val, old) {
       if (val is int) {
-        cm.display.input.tabIndex = val;
+        cm.display.input.getField().tabIndex = val;
+      } else {
+        cm.display.input.getField().tabIndex = 0;
       }
     });
     option("autofocus", null);
@@ -258,6 +266,7 @@ class Options {
       else if (!prev && val)
         cm.addOverlay(new _TrailingspaceMode());
     });
+    option("scrollButtonHeight", 0);
   }
 }
 
@@ -285,6 +294,7 @@ resetModeState(CodeEditor cm, Object value, Object old) {
 dynamic _specialCharPlaceholder(ch) {
   var token = eltspan("\u2022", "cm-invalidchar");
   token.title = "\\u" + ch.charCodeAt(0).toString(16);
+  token.setAttribute("aria-label", token.title);
   return token;
 }
 

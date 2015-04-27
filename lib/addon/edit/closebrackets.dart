@@ -6,30 +6,173 @@ library comid.closebrackets;
 
 import 'package:comid/codemirror.dart';
 
-var DEFAULT_BRACKETS = "()[]{}<>''\"\"";
-var DEFAULT_EXPLODE_ON_ENTER = "[]{}";
-RegExp SPACE_CHAR_REGEX = new RegExp(r'\s');
+var defaults = {
+  'pairs': "()[]{}''\"\"",
+  'triples': "",
+  'explode': "[]{}"
+};
 
 bool _isInitialized = false;
 initializeBracketClosing() {
   if (_isInitialized) return;
   _isInitialized = true;
 
-  CodeMirror.defineOption("autoCloseBrackets", false, (cm, val, old) {
-    if (old != Options.Init && old != null)
-      cm.removeKeyMap("autoCloseBrackets");
-    if (val == null) return;
-    var pairs = DEFAULT_BRACKETS, explode = DEFAULT_EXPLODE_ON_ENTER;
-    if (val is String) pairs = val;
-    else if (val is Map) {
-      if (val['pairs'] != null) pairs = val['pairs'];
-      if (val['explode'] != null) explode = val['explode'];
+  handler(String ch) {
+    return (CodeEditor cm) { return handleChar(cm, ch); };
+  }
+  for (var i = 0; i < bind.length; i++) {
+    String char = bind.substring(i, i+1);
+    keyMap["'" + char + "'"] = handler(char);
+  }
+
+  CodeMirror.defineOption("autoCloseBrackets", false, (CodeEditor cm, val, old) {
+    if (old != Options.Init) {
+      cm.removeKeyMap(keyMap);
+      cm.state.closeBrackets = null;
     }
-    var map = buildKeymap(pairs);
-    if (explode != null) map['Enter'] = buildExplodeHandler(explode);
-    cm.addKeyMap(map);
+    if (val != null && val != false) {
+      cm.state.closeBrackets = val;
+      cm.addKeyMap(keyMap);
+    }
   });
 }
+
+  String getOption(dynamic conf, String name) {
+    if (name == "pairs" && conf is String) return conf;
+    if (conf is Map && conf[name] != null) return conf[name];
+    return defaults[name];
+  }
+
+  String bind = defaults['pairs'] + "`";
+  Map keyMap = {'Backspace': handleBackspace, 'Enter': handleEnter};
+
+  dynamic getConfig(CodeEditor cm) {
+    var deflt = cm.state.closeBrackets;
+    if (deflt == null || deflt == false) return null;
+    Mode mode = cm.getModeAt(cm.getCursor());
+    if (mode.closeBrackets == null) {
+      return deflt;
+    } else {
+      return mode.closeBrackets;
+    }
+  }
+
+  dynamic handleBackspace(CodeEditor cm) {
+    var conf = getConfig(cm);
+    if (conf == null || cm.getOption("disableInput")) return Pass;
+
+    var pairs = getOption(conf, "pairs");
+    var ranges = cm.listSelections();
+    for (var i = 0; i < ranges.length; i++) {
+      if (!ranges[i].empty()) return Pass;
+      String around = charsAround(cm, ranges[i].head);
+      if (around == null || pairs.indexOf(around) % 2 != 0) return Pass;
+    }
+    for (var i = ranges.length - 1; i >= 0; i--) {
+      var cur = ranges[i].head;
+      cm.replaceRange("", new Pos(cur.line, cur.char - 1),
+          new Pos(cur.line, cur.char + 1));
+    }
+    return null;
+  }
+
+  dynamic handleEnter(CodeEditor cm) {
+    var conf = getConfig(cm);
+    String explode = conf != null ? getOption(conf, "explode") : null;
+    if (explode == null || cm.getOption("disableInput")) return Pass;
+
+    var ranges = cm.listSelections();
+    for (var i = 0; i < ranges.length; i++) {
+      if (!ranges[i].empty()) return Pass;
+      String around = charsAround(cm, ranges[i].head);
+      if (around == null || explode.indexOf(around) % 2 != 0) return Pass;
+    }
+    cm.operation(cm, () {
+      cm.replaceSelection("\n\n", null);
+      cm.execCommand("goCharLeft");
+      ranges = cm.listSelections();
+      for (var i = 0; i < ranges.length; i++) {
+        var line = ranges[i].head.line;
+        cm.indentLine(line, null, true);
+        cm.indentLine(line + 1, null, true);
+      }
+    })();
+    return null;
+  }
+
+  dynamic handleChar(CodeEditor cm, String ch) {
+    var conf = getConfig(cm);
+    if (!conf || cm.getOption("disableInput")) return Pass;
+
+    var pairs = getOption(conf, "pairs");
+    var pos = pairs.indexOf(ch);
+    if (pos == -1) return Pass;
+    var triples = getOption(conf, "triples");
+
+    var identical = pairs.substring(pos + 1, pos + 2) == ch;
+    var ranges = cm.listSelections();
+    var opening = pos % 2 == 0;
+
+    var type;
+    for (var i = 0; i < ranges.length; i++) {
+      var range = ranges[i], cur = range.head, curType;
+      var next = cm.getRange(cur, new Pos(cur.line, cur.char + 1));
+      if (opening && !range.empty()) {
+        curType = "surround";
+      } else if ((identical || !opening) && next == ch) {
+        if (triples.indexOf(ch) >= 0 &&
+            cm.getRange(cur, new Pos(cur.line, cur.char + 3)) == ch + ch + ch)
+          curType = "skipThree";
+        else
+          curType = "skip";
+      } else if (identical && cur.char > 1 && triples.indexOf(ch) >= 0 &&
+          cm.getRange(new Pos(cur.line, cur.char - 2), cur) == "$ch$ch" &&
+          (cur.char <= 2 || cm.getRange(new Pos(cur.line, cur.char - 3),
+              new Pos(cur.line, cur.char - 2)) != ch)) {
+        curType = "addFour";
+      } else if (identical) {
+        if (!isWordChar(next) && enteringString(cm, cur, ch)) curType = "both";
+        else return Pass;
+      } else if (opening && (cm.getLine(cur.line).length == cur.char ||
+                             isClosingBracket(next, pairs) ||
+                             new RegExp(r'\s').hasMatch(next))) {
+        curType = "both";
+      } else {
+        return Pass;
+      }
+      if (type == null) type = curType;
+      else if (type != curType) return Pass;
+    }
+
+    var left = pos % 2 != 0 ? pairs.substring(pos - 1, pos) : ch;
+    var right = pos % 2 != 0 ? ch : pairs.substring(pos + 1, pos + 2);
+    cm.operation(cm, () {
+      if (type == "skip") {
+        cm.execCommand("goCharRight");
+      } else if (type == "skipThree") {
+        for (var i = 0; i < 3; i++)
+          cm.execCommand("goCharRight");
+      } else if (type == "surround") {
+        var sels = cm.getSelections();
+        for (var i = 0; i < sels.length; i++) {
+          sels[i] = left + sels[i] + right;
+        }
+        cm.replaceSelections(sels, "around");
+      } else if (type == "both") {
+        cm.replaceSelection(left + right, null);
+        cm.execCommand("goCharLeft");
+      } else if (type == "addFour") {
+        cm.replaceSelection(left + left + left + left, "before");
+        cm.execCommand("goCharRight");
+      }
+    })();
+    return null;
+  }
+
+  bool isClosingBracket(String ch, String pairs) {
+    var pos = pairs.lastIndexOf(ch);
+    return pos > -1 && pos % 2 == 1;
+  }
 
 String charsAround(CodeMirror cm, Pos pos) {
   var str = cm.getRange(new Pos(pos.line, pos.char - 1),
@@ -57,111 +200,4 @@ dynamic enteringString(CodeMirror cm, Pos pos, ch) {
     }
     stream.start = stream.pos;
   }
-}
-
-Map buildKeymap(String pairs) {
-  Map map = {
-    'name' : "autoCloseBrackets",
-    'Backspace': (CodeMirror cm) {
-      if (cm.getOption("disableInput")) return Pass;
-      var ranges = cm.listSelections();
-      for (var i = 0; i < ranges.length; i++) {
-        if (!ranges[i].empty()) return Pass;
-        var around = charsAround(cm, ranges[i].head);
-        if (around  == null || pairs.indexOf(around) % 2 != 0) return Pass;
-      }
-      for (var i = ranges.length - 1; i >= 0; i--) {
-        var cur = ranges[i].head;
-        cm.replaceRange("", new Pos(cur.line, cur.char - 1), new Pos(cur.line, cur.char + 1));
-      }
-    }
-  };
-  var closingBrackets = "";
-  for (var i = 0; i < pairs.length; i += 2) ((left, right) {
-    closingBrackets += right;
-    map["'" + left + "'"] = (CodeMirror cm) {
-      if (cm.getOption("disableInput")) return Pass;
-      var ranges = cm.listSelections(), type;
-      for (var i = 0; i < ranges.length; i++) {
-        var range = ranges[i], cur = range.head, curType;
-        var next = cm.getRange(cur, new Pos(cur.line, cur.char + 1));
-        if (!range.empty()) {
-          curType = "surround";
-        } else if (left == right && next == right) {
-          if (cm.getRange(cur, new Pos(cur.line, cur.char + 3)) == left + left + left) {
-            curType = "skipThree";
-          } else {
-            curType = "skip";
-          }
-        } else if (left == right && cur.char > 1 &&
-                   cm.getRange(new Pos(cur.line, cur.char - 2), cur) == left + left &&
-                   (cur.char <= 2 || cm.getRange(new Pos(cur.line, cur.char - 3), new Pos(cur.line, cur.char - 2)) != left)) {
-          curType = "addFour";
-        } else if (left == '"' || left == "'") {
-          if (!isWordChar(next) && enteringString(cm, cur, left)) curType = "both";
-          else return Pass;
-        } else if (cm.getLine(cur.line).length == cur.char ||
-            closingBrackets.indexOf(next) >= 0 || SPACE_CHAR_REGEX.hasMatch(next)) {
-          curType = "both";
-        } else {
-          return Pass;
-        }
-        if (type == null) type = curType;
-        else if (type != curType) return Pass;
-      }
-
-      cm.operation(cm, () {
-        if (type == "skip") {
-          cm.execCommand("goCharRight");
-        } else if (type == "skipThree") {
-          for (var i = 0; i < 3; i++)
-            cm.execCommand("goCharRight");
-        } else if (type == "surround") {
-          var sels = cm.getSelections();
-          for (var i = 0; i < sels.length; i++)
-            sels[i] = left + sels[i] + right;
-          cm.replaceSelections(sels, "around");
-        } else if (type == "both") {
-          cm.replaceSelection(left + right, null);
-          cm.execCommand("goCharLeft");
-        } else if (type == "addFour") {
-          cm.replaceSelection(left + left + left + left, "before");
-          cm.execCommand("goCharRight");
-        }
-      })();
-    };
-    if (left != right) map["'" + right + "'"] = (CodeMirror cm) {
-      var ranges = cm.listSelections();
-      for (var i = 0; i < ranges.length; i++) {
-        var range = ranges[i];
-        if (!range.empty() ||
-            cm.getRange(range.head, new Pos(range.head.line, range.head.char + 1)) != right)
-          return Pass;
-      }
-      cm.execCommand("goCharRight");
-    };
-  })(pairs.substring(i, i + 1), pairs.substring(i + 1, i + 2));
-  return map;
-}
-
-buildExplodeHandler(String pairs) {
-  return (CodeMirror cm) {
-    if (cm.getOption("disableInput")) return Pass;
-    var ranges = cm.listSelections();
-    for (var i = 0; i < ranges.length; i++) {
-      if (!ranges[i].empty()) return Pass;
-      var around = charsAround(cm, ranges[i].head);
-      if (around == null || pairs.indexOf(around) % 2 != 0) return Pass;
-    }
-    cm.operation(cm, () {
-      cm.replaceSelection("\n\n", null);
-      cm.execCommand("goCharLeft");
-      ranges = cm.listSelections();
-      for (var i = 0; i < ranges.length; i++) {
-        var line = ranges[i].head.line;
-        cm.indentLine(line, null, true);
-        cm.indentLine(line + 1, null, true);
-      }
-    })();
-  };
 }

@@ -55,9 +55,9 @@ ImageElement eltimg([Object content, String className, String style]) {
   return elt("img", content, className, style) as ImageElement;
 }
 
-html.Range range(node, start, end) {
+html.Range range(node, start, end, [endNode]) {
   var r = document.createRange();
-  r.setEnd(node, end);
+  r.setEnd(endNode == null ? node : endNode, end);
   r.setStart(node, start);
   return r;
 }
@@ -84,12 +84,19 @@ Node removeChildrenAndAdd(Element parent, Node element) {
 // Returns true if parent is a container of some sort
 // and child is contained by it.
 bool contains(Element parent, Element child) {
+  if (child.nodeType == 3) // Android browser always returns false when child is a textnode
+    child = child.parentNode;
   if (_domElementDefinesContains(parent)) {
     return parent.contains(child);
   }
   while ((child = child.parentNode) != null) {
     if (child == parent) return true;
   }
+  do {
+    // TODO Possible problem when child is DocumentFragment, not ShadowRoot.
+    if (child is ShadowRoot) child = (child as ShadowRoot).host;
+    if (child == parent) return true;
+  } while ((child = child.parentNode) != null);
   return false;
 }
 
@@ -120,9 +127,12 @@ zeroWidthElement(Element measure) {
       zwspSupported = false;
     }
   }
-  if (zwspSupported) return eltspan("\u200b");
-  else return eltspan("\u00a0", null,
+  var node;
+  if (zwspSupported) node = eltspan("\u200b");
+  else node = eltspan("\u00a0", null,
       "display: inline-block; width: 1px; margin-right: -1px");
+  node.setAttribute("cm-text", "");
+  return node;
 }
 
 // Feature-detect IE's crummy client rect reporting for bidi text
@@ -137,7 +147,7 @@ hasBadBidiRects(Element measure) {
   return _badBidiRects = (r1.right - r0.right < 3);
 }
 
-hasSelection(te) {
+bool hasSelection(te) {
   try { return te.selectionStart != te.selectionEnd; }
   catch(e) { return false; }
 }
@@ -199,6 +209,7 @@ class Pos implements Comparable<Pos>{
     return other.line == line && other.char == char;
   }
   int get hashCode => line.hashCode + char.hashCode;
+  bool get bad => false;
 }
 
 class PosClipped extends Pos {

@@ -47,6 +47,7 @@ class ClikeMode extends Mode {
     multiLineStrings = parserConfig.multiLineStrings;
     indentStatements = parserConfig.indentStatements != false;
     this['fold'] = 'brace';
+    this['closeBrackets'] = null; // Use defaults w/o customization.
   }
 
   String tokenBase(StringStream stream, ClikeState state) {
@@ -208,6 +209,7 @@ class ClikeMode extends Mode {
   String get blockCommentContinue => " * ";
   String get lineComment => "//";
   dynamic get fold => this['fold']; // ... but folding does vary a bt.
+  dynamic get closeBrackets => this['closeBrackets'];
 
   bool get hasIndent => true;
   bool get hasStartState => true;
@@ -302,7 +304,7 @@ String tokenTripleString(StringStream stream, ClikeState state) {
       state.tokenize = null;
       break;
     }
-    escaped = stream.next() != "\\" && !escaped;
+    escaped = stream.next() == "\\" && !escaped;
   }
   return "string";
 }
@@ -452,8 +454,13 @@ void _initializeMode() {
         if (!stream.match('""')) return false;
         state.tokenize = tokenTripleString;
         return state.tokenize(stream, state);
+      },
+      "'": (StringStream stream, ClikeState state) {
+        stream.eatWhile(new RegExp(r'[\w\$_\xa1-\uffff]'));
+        return "atom";
       }
-    }
+    },
+    modeProps: {'closeBrackets': {'triples': '"'}}
   ));
 
   def(["x-shader/x-vertex", "x-shader/x-fragment"], new Config(

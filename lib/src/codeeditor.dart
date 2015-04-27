@@ -10,7 +10,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
    * triple of integers "major.minor.patch", where patch is zero for releases,
    * and something else (usually one) for dev snapshots.
    */
-  static const version = "4.12.1";
+  static const version = "5.0.1";
 
 //  static Options defaults = new Options();
   static Map<String, CommandHandler> defaultCommands = {};
@@ -28,6 +28,10 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
       _elementCache.remove(divToRemove);
     }
   }
+  static Map<String, Function> inputStyles = {
+    "textarea" : (cm) => new TextareaInput(cm),
+    "contenteditable": (cm) => new ContentEditableInput(cm)
+  };
 
   Options options;
   Document doc;
@@ -64,7 +68,10 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     this.doc = doc as Doc;
     this.doc.cm = this;
 
-    display = new Display(place, doc);
+    InputStyle input = inputStyles[options.inputStyle](this);
+    display = new Display(place, doc, input);
+
+//    display = new Display(place, doc);
 //    display.wrapper.CodeMirror = this;
     // Link the DivElement and the CodeEditor for global event dispatching.
     _elementCache[display.wrapper] = this;
@@ -72,7 +79,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     themeChanged();
     if (options['lineWrapping'])
       display.wrapper.className += " CodeMirror-wrap";
-    if (options['autofocus'] == true && !mobile) focusInput();
+    if (options['autofocus'] == true && !mobile) display.input.focus();
     display.initScrollbars(this);
 
     state = new EditState();
@@ -80,7 +87,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     // Override magic textarea content restore that IE sometimes does
     // on our hidden textarea on reload.
     if (ie && ie_version < 11) {
-      setTimeout(bind(resetInput, this, true), 20);
+      setTimeout(() { display.input.reset(true); }, 20);
     }
 
     registerEventHandlers(this);
@@ -90,13 +97,14 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     curOp.forceUpdate = true;
     doc.attachDoc(this, doc);
 
-    if ((options['autofocus'] != null && !mobile) || activeElt() == display.input)
+    if ((options['autofocus'] != null && !mobile) || hasFocus())
       setTimeout(bind(onFocus, this), 20);
     else
       onBlur(this);
 
     Options.optionHandlers.forEach((k,v) => v(this, options[k], Options.Init));
     maybeUpdateLineNumberWidth();
+//    options.finishInit(this); // Redefine several (read-only, in Dart) methods
     for (var i = 0; i < initHooks.length; ++i) {
       initHooks[i](this);
     }
@@ -110,8 +118,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
 
   void focus() {
 //    window.focus();
-    focusInput();
-    fastPoll();
+    display.input.focus();
   }
 
   updateSelection() {
@@ -270,7 +277,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
 
   dynamic getHelpers(Pos pos, String type) {
     var found = [];
-    //if (!helpers.hasOwnProperty(type)) return helpers;
+    //if (!helpers.hasOwnProperty(type)) return found;
     var help = helpers[type];
     if (help == null) return helpers;
     var mode = getModeAt(pos);
@@ -370,7 +377,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
         noHScroll: noHScroll, above: above,
         handleMouseEvents: handleMouseEvents, insertAt: insertAt);
     return methodOp(() {
-      return display.addLineWidget(this, handle, node, options);
+      return display.addLineWidget(doc, handle, node, options);
     })();
   }
 
@@ -402,6 +409,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     num top = pos.bottom, left = pos.left;
     node.style.position = "absolute";
     _doIgnoreEvents(node);
+    display.input.setUneditable(node);
     display.sizer.append(node);
     if (vert == "over") {
       top = pos.top;
@@ -705,7 +713,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
 
     signal(this, "overwriteToggle", this, state.overwrite);
   }
-  bool hasFocus() { return activeElt() == display.input; }
+  bool hasFocus() { return display.input.getField() == activeElt(); }
 
   void scrollTo(num x, num y) {
     methodOp(() {
@@ -798,7 +806,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
       old.cm = null;
       doc.attachDoc(this, doc);
       clearCaches();
-      resetInput();
+      display.input.reset();
       scrollTo(doc.scrollLeft, doc.scrollTop);
       curOp.forceScroll = true;
       signalLater(this, "swapDoc", this, old);
@@ -806,7 +814,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     })();
   }
 
-  TextAreaElement getInputField() { return display.input; }
+  Element getInputField() { return display.input.getField(); }
   DivElement getWrapperElement() { return display.wrapper; }
   DivElement getScrollerElement() { return display.scroller; }
   DivElement getGutterElement() { return display.gutters; }
@@ -1676,181 +1684,6 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     return dirty;
   }
 
-  // Poll for input changes, using the normal rate of polling. This
-  // runs as long as the editor is focused.
-  slowPoll() {
-    if (display.pollingFast) return;
-    display.poll.set(options.pollInterval, () {
-      readInput();
-      if (state.focused) slowPoll();
-    });
-  }
-
-  // When an event has just come in that is likely to add or change
-  // something in the input textarea, we poll faster, to ensure that
-  // the change appears on the screen quickly.
-  fastPoll() {
-    var missed = false;
-    display.pollingFast = true;
-    p() {
-      var changed = readInput();
-      if (!changed && !missed) {
-        missed = true;
-        display.poll.set(60, p);
-      } else {
-        display.pollingFast = false;
-        slowPoll();
-      }
-    }
-    display.poll.set(20, p);
-  }
-
-  // Read input from the textarea, and update the document to match.
-  // When something is selected, it is present in the textarea, and
-  // selected (unless it is huge, in which case a placeholder is
-  // used). When nothing is selected, the cursor sits after previously
-  // seen text (can be empty), which is stored in prevInput (we must
-  // not reset the textarea when typing, because that breaks IME).
-  bool readInput() {
-    var input = display.input, prevInput = display.prevInput;
-    // Since this is called a *lot*, try to bail out as cheaply as
-    // possible when it is clear that nothing happened. hasSelection
-    // will be the case when there is a lot of text in the textarea,
-    // in which case reading its value would be expensive.
-    if (!state.focused || (hasSelection(input) && prevInput.isEmpty) ||
-        isReadOnly() || options.disableInput || state.keySeq != null)
-      return false;
-    // See paste handler for more on the fakedLastChar kludge
-    if (state.pasteIncoming && state.fakedLastChar) {
-      input.value = input.value.substring(0, input.value.length - 1);
-      state.fakedLastChar = false;
-    }
-    var text = input.value;
-    // If nothing changed, bail.
-    if (text == prevInput && !doc.somethingSelected()) return false;
-    // Work around nonsensical selection resetting in IE9/10, and
-    // inexplicable appearance of private area unicode characters on
-    // some key combos in Mac (#2689).
-    if (ie && ie_version >= 9 && display.inputHasSelection == text ||
-        mac && new RegExp(r'[\uf700-\uf7ff]').hasMatch(text)) {
-      resetInput();
-      return false;
-    }
-
-    var withOp = curOp == null;
-    if (withOp) startOperation(this);
-    display.shift = false;
-
-    if ((text.length > 0 && text.codeUnitAt(0) == 0x200b) &&
-        doc.sel == display.selForContextMenu && prevInput == null) {
-      prevInput = "\u200b";
-    }
-    // Find the part of the input that is actually new
-    var same = 0, l = min(prevInput.length, text.length);
-    while (same < l && prevInput.codeUnitAt(same) == text.codeUnitAt(same)) {
-      ++same;
-    }
-    var inserted = text.substring(same);
-    List<String> textLines = doc.splitLines(inserted);
-
-    // When pasing N lines into N selections, insert one line per selection
-    var multiPaste = null;
-    if (state.pasteIncoming && doc.sel.ranges.length > 1) {
-      if (lastCopied && lastCopied.join("\n") == inserted)
-        multiPaste = doc.sel.ranges.length % lastCopied.length == 0
-            ? lastCopied.map(doc.splitLines) : null;
-      else if (textLines.length == doc.sel.ranges.length)
-        multiPaste = textLines.map((l) => [l]);
-    }
-
-    // Normal behavior is to insert the new text into every selection
-    var updateInput;
-    for (var i = doc.sel.ranges.length - 1; i >= 0; i--) {
-      var range = doc.sel.ranges[i];
-      var from = range.from(), to = range.to();
-      // Handle deletion
-      if (same < prevInput.length)
-        from = new Pos(from.line, from.char - (prevInput.length - same));
-      // Handle overwrite
-      else if (state.overwrite && range.empty() && !state.pasteIncoming)
-        to = new Pos(to.line, min(doc._getLine(to.line).text.length,
-                                      to.char + lst(textLines).length));
-      updateInput = curOp.updateInput;
-      var changeEvent = new Change(from, to,
-          multiPaste != null ? multiPaste[i % multiPaste.length] : textLines,
-          state.pasteIncoming ? "paste" : state.cutIncoming ? "cut" : "+input");
-      doc.makeChange(changeEvent);
-      signalLater(this, "inputRead", this, changeEvent);
-      // When an 'electric' character is inserted, immediately trigger a reindent
-      if (inserted.length > 0 && !state.pasteIncoming && options.electricChars &&
-          options.smartIndent && range.head.char < 100 &&
-          (i == 0 || doc.sel.ranges[i - 1].head.line != range.head.line)) {
-        var mode = getModeAt(range.head);
-        var end = changeEnd(changeEvent);
-        if (mode.hasElectricChars) {
-          for (var j = 0; j < mode.electricChars.length; j++)
-            if (inserted.indexOf(mode.electricChars.substring(j,j+1)) > -1) {
-              indentLine(end.line, "smart");
-              break;
-            }
-        } else if (mode.hasElectricInput) {
-          if (mode.electricInput.hasMatch(
-                doc._getLine(end.line).text.substring(0, end.char)))
-            indentLine(end.line, "smart");
-        }
-      }
-    }
-    ensureCursorVisible();
-    curOp.updateInput = updateInput;
-    curOp.typing = true;
-
-    // Don't leave long text in the textarea,since it makes further polling slow
-    if (text.length > 1000 || text.indexOf("\n") > -1) {
-      input.value = display.prevInput = "";
-    } else {
-      display.prevInput = text;
-    }
-    if (withOp) endOperation(this);
-    state.pasteIncoming = state.cutIncoming = false;
-    return true;
-  }
-
-  // Reset the input to correspond to the selection (or to be empty,
-  // when not typing and nothing is selected)
-  resetInput([typing]) {
-    if (display.contextMenuPending) return;
-    var minimal, selected;
-    if (doc.somethingSelected()) {
-      display.prevInput = "";
-      var range = doc.sel.primary();
-      minimal = hasCopyEvent &&
-        (range.to().line - range.from().line > 100 ||
-            (selected = doc.getSelection()).length > 1000);
-      String content = minimal ? "-" : selected == null ? doc.getSelection() : selected;
-      display.input.value = content;
-      if (state.focused) selectInput(display.input);
-      if (ie && ie_version >= 9) display.inputHasSelection = content;
-    } else if (typing == null) {
-      display.prevInput = display.input.value = "";
-      if (ie && ie_version >= 9) display.inputHasSelection = null;
-    }
-    display.inaccurateSelection = minimal;
-  }
-
-  focusInput() {
-    if (options.readOnly != "nocursor" &&
-        (!mobile || activeElt() != display.input))
-      display.input.focus();
-  }
-
-  ensureFocus() {
-    if (!state.focused) { focusInput(); onFocus(this); }
-  }
-
-  isReadOnly() {
-    return options.readOnly != false || doc.cantEdit;
-  }
-
   // Attach the necessary event handlers when initializing the editor
   registerEventHandlers(CodeEditor cm) {
     var d = cm.display;
@@ -1870,16 +1703,65 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
         if (signalDOMEvent(cm, e) != false) e_preventDefault(e);
       });
     }
-    // Prevent normal selection in the editor (we handle our own)
-    on(d.lineSpace, "selectstart", (e) {
-      if (!eventInWidget(d, e)) e_preventDefault(e);
-    });
     // Some browsers fire contextmenu *after* opening the menu, at
     // which point we can't mess with it anymore. Context menu is
     // handled in onMouseDown for these browsers.
     if (!captureRightClick) {
       on(d.scroller, "contextmenu", (e) { onContextMenu(cm, e); });
     }
+
+    // Used to suppress mouse event handling when a touch happens
+    var touchFinished;
+    TouchTime prevTouch = new TouchTime.def();
+    void finishTouch(TouchEvent e) {
+      if (d.activeTouch != null) {
+        touchFinished = setTimeout(() {d.activeTouch = null;}, 1000);
+        prevTouch = d.activeTouch;
+        prevTouch.end = new DateTime.now();
+      }
+    };
+    bool isMouseLikeTouchEvent(TouchEvent e) {
+      if (e.touches.length != 1) return false;
+      var touch = e.touches[0];
+      return touch.radiusX <= 1 && touch.radiusY <= 1;
+    }
+    bool farAway(touch, other) {
+      if (other.left == null) return true;
+      var dx = other.left - touch.left, dy = other.top - touch.top;
+      return dx * dx + dy * dy > 20 * 20;
+    }
+    on(d.scroller, "touchstart", (TouchEvent e) {
+      if (!isMouseLikeTouchEvent(e)) {
+        clearTimeout(touchFinished);
+        var now = new DateTime.now();
+        d.activeTouch = new TouchTime(now, now.difference(prevTouch.end).inMilliseconds <= 300 ? prevTouch : null, false);
+        if (e.touches.length == 1) {
+          d.activeTouch.left = e.touches[0].page.x;
+          d.activeTouch.top = e.touches[0].page.y;
+        }
+      }
+    });
+    on(d.scroller, "touchmove", (TouchEvent e) {
+      if (d.activeTouch != null) d.activeTouch.moved = true;
+    });
+    on(d.scroller, "touchend", (TouchEvent e) {
+      var touch = d.activeTouch;
+      if (touch != null && !eventInWidget(d, e) && touch.left != null &&
+          !touch.moved && new DateTime.now().difference(touch.start).inMilliseconds < 300) {
+        var pos = cm.coordsChar(d.activeTouch, "page"), range;
+        if (touch.prev == null || farAway(touch, touch.prev)) // Single tap
+          range = new Range(pos, pos);
+        else if (touch.prev.prev == null || farAway(touch, touch.prev.prev)) // Double tap
+          range = cm.findWordAt(pos);
+        else // Triple tap
+          range = new Range(new Pos(pos.line, 0), cm.doc.clipPos(new Pos(pos.line + 1, 0)));
+        cm.setSelection(range.anchor, range.head);
+        cm.focus();
+        e_preventDefault(e);
+      }
+      finishTouch(null);
+    });
+    on(d.scroller, "touchcancel", finishTouch);
 
     // Sync scrolling between fake scrollbars and real scrollable
     // area, ensure viewport is updated when scrolling.
@@ -1900,18 +1782,6 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
       d.wrapper.scrollTop = d.wrapper.scrollLeft = 0;
     });
 
-    on(d.input, "keyup", (e) { onKeyUp(e); });
-    on(d.input, "input", (e) {
-      if (ie && ie_version >= 9 && cm.display.inputHasSelection != null) {
-        cm.display.inputHasSelection = null;
-      }
-      readInput( );
-    });
-    on(d.input, "keydown", (e) => operation(cm, () { onKeyDown(e); } )());
-    on(d.input, "keypress", (e) => operation(cm, () { onKeyPress(e); } )());
-    on(d.input, "focus", (e) { onFocus(this); });
-    on(d.input, "blur", (e) { onBlur(this); });
-
     drag_(e) {
       if (!signalDOMEvent(cm, e)) e_stop(e);
     }
@@ -1919,74 +1789,15 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
       on(d.scroller, "dragstart", (e) { onDragStart(cm, e); });
       on(d.scroller, "dragenter", (e) { drag_(e); });
       on(d.scroller, "dragover", (e) { drag_(e); });
-      on(d.scroller, "drop", (e) => operation(cm, () { onDrop(e); } )());
+      on(d.scroller, "drop", (e) => operation(cm, () { onDrop(e); })());
     }
-    on(d.scroller, "paste", (e) {
-      if (eventInWidget(d, e)) return;
-      cm.state.pasteIncoming = true;
-      focusInput();
-      fastPoll();
-    });
-    on(d.input, "paste", (e) {
-      // Workaround for webkit bug https://bugs.webkit.org/show_bug.cgi?id=90206
-      // Add a char to the end of textarea before paste occur so that
-      // selection doesn't span to the end of textarea.
-      if (webkit && !cm.state.fakedLastChar && cm.state.lastMiddleDown != null) {
-        DateTime cur = new DateTime.now();
-        Duration dur = cur.difference(cm.state.lastMiddleDown);
-        num deltaTime = dur.inMilliseconds;
-        if (!(deltaTime < 200)) {
-          var start = d.input.selectionStart, end = d.input.selectionEnd;
-          d.input.value += r"$";
-          // The selection end needs to be set before the start, otherwise there
-          // can be an intermediate non-empty selection between the two, which
-          // can override the middle-click paste buffer on linux and cause the
-          // wrong thing to get pasted.
-          d.input.selectionEnd = end;
-          d.input.selectionStart = start;
-          cm.state.fakedLastChar = true;
-        }
-      }
-      cm.state.pasteIncoming = true;
-      fastPoll();
-    });
 
-    prepareCopyCut(e) {
-      if (cm.doc.somethingSelected()) {
-        lastCopied = cm.doc.getSelections();
-        if (d.inaccurateSelection) {
-          d.prevInput = "";
-          d.inaccurateSelection = false;
-          d.input.value = lastCopied.join("\n");
-          selectInput(d.input);
-        }
-      } else {
-        var text = [], ranges = [];
-        for (var i = 0; i < cm.doc.sel.ranges.length; i++) {
-          var line = cm.doc.sel.ranges[i].head.line;
-          var lineRange = new Range(new Pos(line, 0), new Pos(line + 1, 0));
-          ranges.add(lineRange);
-          text.add(doc.getRange(lineRange.anchor, lineRange.head));
-        }
-        if (e.type == "cut") {
-          cm.doc.setSelections(ranges, null, sel_dontScroll);
-        } else {
-          d.prevInput = "";
-          d.input.value = text.join("\n");
-          selectInput(d.input);
-        }
-        lastCopied = text;
-      }
-      if (e.type == "cut") cm.state.cutIncoming = true;
-    }
-    on(d.input, "cut", prepareCopyCut);
-    on(d.input, "copy", prepareCopyCut);
-
-    // Needed to handle Tab key in KHTML
-    if (khtml) on(d.sizer, "mouseup", () {
-      if (activeElt() == d.input) d.input.blur();
-      focusInput();
-    });
+    var inp = d.input.getField();
+    on(inp, "keyup", (e) { onKeyUp(e); });
+    on(inp, "keydown", (e) => operation(cm, () { onKeyDown(e); })());
+    on(inp, "keypress", (e) => operation(cm, () { onKeyPress(e); })());
+    on(inp, "focus", (e) => onFocus(cm));
+    on(inp, "blur", (e) => onBlur(cm));
   }
 
   // Called when the window resizes
@@ -2021,7 +1832,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
   Pos posFromMouse(CodeEditor cm, MouseEvent e,
                    [bool liberal = false, bool forRect = false]) {
     var display = cm.display;
-    if (!liberal && e_target(e).getAttribute("not-content") == "true") {
+    if (!liberal && e_target(e).getAttribute("cm-not-content") == "true") {
       return null;
     }
     var x, y, space = display.lineSpace.getBoundingClientRect();
@@ -2055,9 +1866,12 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
   // middle-click-paste. Or it might be a click on something we should
   // not interfere with, such as a scrollbar or widget.
   onMouseDown(MouseEvent e) {
-    if (signalDOMEvent(this, e)) return;
     CodeEditor cm = this;
-    Display display = cm.display;
+    Displ display = cm.display;
+    if (display.activeTouch != null && display.input.supportsTouch() ||
+        signalDOMEvent(cm, e)) {
+      return;
+    }
     display.shift = e.shiftKey;
 
     if (eventInWidget(display, e)) {
@@ -2083,18 +1897,20 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     case 2:
       if (webkit) cm.state.lastMiddleDown = new DateTime.now();
       if (start != null) doc._extendSelection(start);
-      setTimeout(focusInput, 20);
+      setTimeout(() { display.input.focus(); }, 20);
       e_preventDefault(e);
       break;
     case 3:
       if (captureRightClick) onContextMenu(cm, e);
+      else delayBlurEvent();
       break;
     }
   }
 
   ClickTracker lastClick, lastDoubleClick;
   leftButtonDown(CodeEditor cm, MouseEvent e, Pos start) {
-    setTimeout(ensureFocus, 0);//bind(ensureFocus, cm), 0);
+    if (ie) setTimeout(display.input.ensureFocus, 0);//bind(ensureFocus, cm), 0);
+    else display.input.ensureFocus();
 
     var now = new DateTime.now();
     String type;
@@ -2109,7 +1925,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     }
 
     var sel = cm.doc.sel, modifier = mac ? e.metaKey : e.ctrlKey, contained;
-    if (cm.options.dragDrop && !isReadOnly() &&
+    if (cm.options.dragDrop && !display.input.isReadOnly() &&
         type == "single" && (contained = sel.contains(start)) > -1 &&
         !sel.ranges[contained].empty()) {
       leftButtonStartDrag(cm, e, start, modifier);
@@ -2133,10 +1949,13 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
         e_preventDefault(e);
         if (!modifier)
           doc._extendSelection(start);
-        focusInput();
-        // Work around unexplainable focus problem in IE9 (#2127)
+        // Work around unexplainable focus problem in IE9 (#2127) and Chrome (#3081)
         //if (ie && ie_version == 9)
-        //  setTimeout(() { document.body.focus(); focusInput(cm); }, 20);
+        if (webkit) {
+          setTimeout(() { document.body.focus(); display.input.focus(); }, 20);
+        } else {
+          display.input.focus();
+        }
       }
     })();
     // Let the drag handler handle this.
@@ -2162,6 +1981,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
         ourRange = new Range(start, start);
     } else {
       ourRange = doc.sel.primary();
+      ourIndex = doc.sel.primIndex;
     }
 
     if (e.altKey) {
@@ -2196,7 +2016,8 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
       list.add(ourRange);
       doc._setSelection(normalizeSelection(list, ourIndex),
                    new SelectionOptions(scroll: false, origin: "*mouse"));
-    } else if (ranges.length > 1 && ranges[ourIndex].empty() && type == "single") {
+    } else if (ranges.length > 1 && ranges[ourIndex].empty() &&
+        type == "single" && !e.shiftKey) {
       var list = ranges.sublist(0, ourIndex);
       list.addAll(ranges.sublist(ourIndex + 1));
       doc._setSelection(normalizeSelection(list, 0));
@@ -2269,7 +2090,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
       var cur = posFromMouse(cm, e, true, type == "rect");
       if (cur == null) return;
       if (cmp(cur, lastPos) != 0) {
-        ensureFocus();
+        display.input.ensureFocus();
         extendTo(cur);
         var visible = display.visibleLines(doc);
         if (cur.line >= visible.to || cur.line < visible.from)
@@ -2306,7 +2127,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     done = (MouseEvent e) {
       counter = double.INFINITY;
       e_preventDefault(e);
-      focusInput();
+      display.input.focus();
       off(document, "mousemove", move);
       off(document, "mouseup", up);
       doc.history.lastSelOrigin = null;
@@ -2357,7 +2178,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     if (ie) lastDrop = new DateTime.now();
     var pos = posFromMouse(cm, e, true);
     List files = e.dataTransfer.files;
-    if (pos == null || isReadOnly()) return;
+    if (pos == null || display.input.isReadOnly()) return;
     // Might be a file drop, in which case we simply extract the text
     // and insert it.
     if (files != null && files.length > 0) {
@@ -2383,7 +2204,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
         // It needs to be evaluated with the current event as its arg.
         cm.state.draggingText(e);
         // Ensure the editor is re-focused
-        setTimeout(focusInput, 20);
+        setTimeout(() { cm.display.input.focus(); }, 20);
         return;
       }
       try {
@@ -2399,7 +2220,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
             }
           }
           doc.replaceSelection(text, "around", "paste");
-          focusInput();
+          cm.display.input.focus();
         }
       }
       catch (e) {
@@ -2605,10 +2426,10 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     }
     // Ensure previous input has been read, so that the handler sees a
     // consistent view of the document
-    if (display.pollingFast && readInput()) display.pollingFast = false;
+    display.input.ensurePolled();
     var prevShift = display.shift, done = false;
     try {
-      if (isReadOnly()) state.suppressEdits = true;
+      if (display.input.isReadOnly()) state.suppressEdits = true;
       if (dropShift) display.shift = false;
       done = bound(this) != Pass;
     } finally {
@@ -2637,7 +2458,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
       stopSeq.set(50, () {
         if (state.keySeq == seq) {
           state.keySeq = null;
-          resetInput();
+          display.input.reset();
         }
       });
       name = seq + " " + name;
@@ -2692,7 +2513,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
 
   var lastStoppedKey = null;
   onKeyDown(var e) {
-    ensureFocus();
+    display.input.ensureFocus();
     if (signalDOMEvent(this, e)) return;
     // IE does strange things with escape. (Ignoring pre 11)
 //    if (ie && ie_version < 11 && e.keyCode == 27) e.returnValue = false;
@@ -2726,14 +2547,15 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     on(document, "mouseover", up);
   }
 
-  onKeyUp(e) {
+  onKeyUp(KeyboardEvent e) {
     // The original code has doc.sel.shift = false but that looks like a bug.
     if (e.keyCode == 16) display.shift = false;
     signalDOMEvent(this, e);
   }
 
-  onKeyPress(e) {
-    if (signalDOMEvent(this, e) || e.ctrlKey && !e.altKey || mac && e.metaKey) {
+  onKeyPress(KeyboardEvent e) {
+    if (eventInWidget(display, e) || signalDOMEvent(this, e) ||
+        e.ctrlKey && !e.altKey || mac && e.metaKey) {
       return;
     }
     var keyCode = e.keyCode, charCode = e.charCode;
@@ -2741,36 +2563,48 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
       lastStoppedKey = null; e_preventDefault(e);
       return;
     }
-    if (((presto && (!e.which || e.which < 10)) || khtml) &&
-        handleKeyBinding(e)) {
+    if (((presto && (e.which < 10))) && handleKeyBinding(e)) {
       return;
     }
     var ch = new String.fromCharCode(charCode == null ? keyCode : charCode);
     if (handleCharBinding(e, ch) != null) return;
-    if (ie && ie_version >= 9) display.inputHasSelection = null;
-    fastPoll();
+    display.input.onKeyPress(e);
   }
 
   // FOCUS/BLUR EVENTS
 
+  delayBlurEvent() {
+    state.delayingBlurEvent = true;
+    setTimeout(() {
+      if (state.delayingBlurEvent) {
+        state.delayingBlurEvent = false;
+        onBlur(this);
+      }
+    }, 100);
+  }
+
   onFocus(CodeEditor cm) {
+    if (cm.state.delayingBlurEvent) cm.state.delayingBlurEvent = false;
+
     if (options.readOnly == "nocursor") return;
     if (!state.focused) {
       signal(this, "focus", this);
       state.focused = true;
       addClass(display.wrapper, "CodeMirror-focused");
-      // The prevInput test prevents this from firing when a context
-      // menu is closed (since the resetInput would kill the
+      // This test prevents this from firing when a context
+      // menu is closed (since the input reset would kill the
       // select-all detection hack)
       if (curOp == null && display.selForContextMenu != doc.sel) {
-        resetInput();
-        if (webkit) setTimeout(() { resetInput(true); }, 0); // Issue #1730
+        cm.display.input.reset();
+        if (webkit) setTimeout(() { cm.display.input.reset(true); }, 20); // Issue #1730
       }
+      cm.display.input.receivedFocus();
     }
-    slowPoll();
     display.restartBlink(this);
   }
   onBlur(CodeEditor cm) {
+    if (cm.state.delayingBlurEvent) return;
+
     if (state.focused) {
       signal(this, "blur", this);
       state.focused = false;
@@ -2784,87 +2618,8 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
   // textarea (making it as unobtrusive as possible) to let the
   // right-click take effect on it.
   onContextMenu(cm, e) {
-    if (signalDOMEvent(cm, e, "contextmenu")) return;
-    if (eventInWidget(display, e) || contextMenuInGutter(cm, e)) return;
-
-    var pos = posFromMouse(cm, e), scrollPos = display.scroller.scrollTop;
-    if (pos == null || presto) return; // Opera is difficult.
-
-    // Reset the current text selection only if the click is done outside of the selection
-    // and 'resetSelectionOnContextMenu' option is true.
-    var reset = options.resetSelectionOnContextMenu;
-    if (reset && cm.doc.sel.contains(pos) == -1)
-      operation(cm, () => doc._setSelection(simpleSelection(pos), sel_dontScroll))();
-
-    var oldCSS = display.input.style.cssText;
-    display.inputDiv.style.position = "absolute";
-    display.input.style.cssText =
-        "position: fixed; width: 30px; height: 30px; top: ${e.clientY - 5}" +
-        "px; left: ${e.clientX - 5}" + "px; z-index: 1000; background: " +
-        (ie ? "rgba(255, 255, 255, .05)" : "transparent") +
-        "; outline: none; border-width: 0; outline: none; overflow: hidden; opacity: .05; filter: alpha(opacity=5);";
-    var oldScrollY, oldScrollX;
-    if (webkit) {
-      oldScrollY = window.scrollY; // Work around Chrome issue (#2712)
-      oldScrollX = window.scrollX;
-    }
-    focusInput();
-    if (webkit) window.scrollTo(oldScrollX, oldScrollY);
-    resetInput();
-    // Adds "Select all" to context menu in FF
-    if (!doc.somethingSelected()) display.input.value = display.prevInput = " ";
-    display.contextMenuPending = true;
-    display.selForContextMenu = doc.sel;
-    clearTimeout(display.detectingSelectAll);
-
-    // Select-all will be greyed out if there's nothing to select, so
-    // this adds a zero-width space so that we can later check whether
-    // it got selected.
-    prepareSelectAllHack() {
-      if (display.input.selectionStart != null) {
-        var selected = doc.somethingSelected();
-        var extval = display.input.value = "\u200b" + (selected ? display.input.value : "");
-        display.prevInput = selected ? "" : "\u200b";
-        display.input.selectionStart = 1; display.input.selectionEnd = extval.length;
-        // Re-set this, in case some other handler touched the
-        // selection in the meantime.
-        display.selForContextMenu = doc.sel;
-      }
-    }
-    rehide() {
-      display.contextMenuPending = false;
-      display.inputDiv.style.position = "relative";
-      display.input.style.cssText = oldCSS;
-      if (ie && ie_version < 9) display.scrollbars.setScrollTop(display.scroller.scrollTop = scrollPos);
-      slowPoll();
-
-      // Try to detect the user choosing select-all
-      if (display.input.selectionStart != null) {
-        if (!ie || (ie && ie_version < 9)) prepareSelectAllHack();
-        var i = 0;
-        poll() {
-          if (display.selForContextMenu == doc.sel && display.input.selectionStart == 0)
-            operation(cm, commands['selectAll'])();
-          else if (i++ < 10) display.detectingSelectAll = setTimeout(poll, 500);
-          else resetInput();
-        };
-        display.detectingSelectAll = setTimeout(poll, 200);
-      }
-    }
-
-//    if (ie && ie_version >= 9) prepareSelectAllHack();
-    prepareSelectAllHack();
-    if (captureRightClick) {
-      e_stop(e);
-      var mouseup;
-      mouseup = () {
-        off(window, "mouseup", mouseup);
-        setTimeout(rehide, 20);
-      };
-      on(window, "mouseup", mouseup);
-    } else {
-      setTimeout(rehide, 50);
-    }
+    if (eventInWidget(cm.display, e) || contextMenuInGutter(cm, e)) return;
+    cm.display.input.onContextMenu(e);
   }
 
   contextMenuInGutter(cm, e) {
@@ -3425,7 +3180,8 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     // is needed on Webkit to be able to get line-level bounding
     // rectangles for it (in measureChar).
     var content = eltspan(null, null, webkit ? "padding-right: .1px" : null);
-    dynamic builder = new LineBuilder(eltpre([content]), content,  0, 0, this);
+    dynamic builder = new LineBuilder(eltpre([content]), content,  0, 0, this,
+        (ie || webkit) && getOption("lineWrapping") == true);
     lineView.measure = new LineMeasurement();
 
     // Iterate over the logical lines that make up this visual line.
@@ -3436,8 +3192,6 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
       builder.addToken = builder.buildToken;
       // Optionally wire in some hacks into the token-rendering
       // algorithm, to deal with browser quirks.
-      if ((ie || webkit) && getOption("lineWrapping"))
-        builder.addToken = builder.buildTokenSplitSpaces(builder.addToken);
       if (hasBadBidiRects(display.measure) && (order = doc.getOrder(line)))
         builder.addToken = builder.buildTokenBadBidi(builder.addToken, order);
       builder.map = [];
@@ -3924,7 +3678,11 @@ class CodeEditorArea extends CodeEditor {
   factory CodeEditorArea.fromTextArea(TextAreaElement textarea, dynamic options) {
     if (options == null) options = new Options();
     else if (options is Map) options = new Options.from(options);
+    else options = options.copy();
     options['value'] = textarea.value;
+    if (options.tabindex == null && textarea.tabIndex != null) {
+      options['tabindex'] = textarea.tabIndex;
+    }
     // Set autofocus to true if this textarea is focused, or if it has
     // autofocus and no other element is focused.
     if (options.autofocus == null) {
@@ -4071,7 +3829,7 @@ class Operation {
   ScrollMeasure barMeasure;
   num adjustWidthTo;
   num maxScrollLeft;
-  DrawnSelection newSelectionNodes;
+  DrawnSelection preparedSelection;
   bool forceScroll = false;
   List maybeHiddenMarkers;
   List maybeUnhiddenMarkers;
@@ -4133,7 +3891,7 @@ class Operation {
     }
 
     if (updatedDisplay || selectionChanged)
-      newSelectionNodes = cm.display.drawSelection(cm);
+      preparedSelection = display.input.prepareSelection();
   }
 
   endOperation_W2() {
@@ -4147,8 +3905,8 @@ class Operation {
       cm.display.maxLineChanged = false;
     }
 
-    if (newSelectionNodes != null) {
-      cm.display.showSelection(cm, newSelectionNodes);
+    if (preparedSelection != null) {
+      cm.display.input.showSelection(preparedSelection);
     }
     if (updatedDisplay) {
       cm.display.setDocumentHeight(barMeasure);
@@ -4159,7 +3917,9 @@ class Operation {
 
     if (selectionChanged) cm.display.restartBlink(cm);
 
-    if (cm.state.focused && updateInput != null) cm.resetInput(typing);
+    if (cm.state.focused && updateInput != null) {
+      cm.display.input.reset(typing);
+    }
   }
 
   endOperation_finish() {
@@ -4209,8 +3969,12 @@ class Operation {
     }
 
     // Fire change events, and delayed event handlers
-    if (changeObjs != null)
+    if (changeObjs != null) {
       cm.signal(cm, "changes", cm, changeObjs);
+    }
+    if (update != null) {
+      update.finish();
+    }
   }
 
 }
@@ -4313,22 +4077,25 @@ class EditState {
   List overlays = []; // highlighting overlays, as added by addOverlay
   int modeGen = 0;   // bumped when mode/overlay changes, used to invalidate highlighting info
   bool overwrite = false;
+  bool delayingBlurEvent = false;
   bool focused = false;
   bool suppressEdits = false; // used to disable editing during key handlers when in readOnly mode
   bool pasteIncoming = false; // help recognize paste/cut edits in readInput
-  bool cutIncoming = false; // help recognize paste/cut edits in readInput
+  bool cutIncoming = false; // help recognize paste/cut edits in input.poll
   Object draggingText = null;
   Delayed highlight = new Delayed(); // stores highlight worker timeout
-  var keySeq = null;  // Unfinished key sequence
+  String keySeq = null;  // Unfinished key sequence
+  RegExp specialChars = null;
+  // The rest are defined for use by add-ons
   DateTime lastMiddleDown;
   bool fakedLastChar = false;
-  bool checkedOverlayScrollbar = false;
   var matchBrackets;
   var completionActive;
   var search;
   var matchHighlighter;
-  var currentNotificationClose;
+  Function currentNotificationClose;
   var foldGutter;
+  var closeBrackets;
 
   EditState copy() {
     return new EditState()..copyValues(this);
@@ -4339,6 +4106,7 @@ class EditState {
     overlays = old.overlays;
     modeGen = old.modeGen;
     overwrite = old.overwrite;
+    delayingBlurEvent = old.delayingBlurEvent;
     focused = old.focused;
     suppressEdits = old.suppressEdits;
     pasteIncoming = old.pasteIncoming;
@@ -4346,9 +4114,15 @@ class EditState {
     draggingText = old.draggingText;
     highlight = old.highlight;
     keySeq = old.keySeq;
+    specialChars = old.specialChars;
     lastMiddleDown = old.lastMiddleDown;
     fakedLastChar = old.fakedLastChar;
-    checkedOverlayScrollbar = old.checkedOverlayScrollbar;
+    matchBrackets = old.matchBrackets;
+    completionActive = old.completionActive;
+    search = old.search;
+    matchHighlighter = old.matchHighlighter;
+    currentNotificationClose = old.currentNotificationClose;
+    foldGutter = old.foldGutter;
   }
 
 }
@@ -4363,17 +4137,22 @@ class LineBuilder {
   var addToken;
   List map; // Each "element" is a triple: int, int, Node
   String bgClass = "", textClass = "";
-  LineBuilder(this.pre, this.content, this.col, this.pos, this.cm);
+  bool shouldSplitSpaces;
+
+  LineBuilder(this.pre, this.content, this.col, this.pos, this.cm, this.shouldSplitSpaces);
 
   // Build up the DOM representation for a single token, and add it to
   // the line map. Takes care to render special characters separately.
   buildToken(String text, [String style, String startStyle, String endStyle, String title, String css=""]) {
     if (text == null) return null;
     var content;
-    var special = cm.options.specialChars, mustWrap = false;
+    var displayText = shouldSplitSpaces
+        ? text.replaceAllMapped(new RegExp(r' {3,}'), splitSpaces)
+        : text;
+    var special = cm.state.specialChars, mustWrap = false;
     if (!special.hasMatch(text)) {
       col += text.length;
-      content = new Text(text);
+      content = new Text(displayText);
       map..add(pos)..add(pos + text.length)..add(content);
 //      if (ie && ie_version < 9) mustWrap = true;
       pos += text.length;
@@ -4385,7 +4164,7 @@ class LineBuilder {
         Match m = special.matchAsPrefix(text, pos);
         var skipped = m != null ? m.start - pos : text.length - pos;
         if (skipped != 0) {
-          var txt = new Text(text.substring(pos, pos + skipped));
+          var txt = new Text(displayText.substring(pos, pos + skipped));
 //          if (ie && ie_version < 9) content.appendChild(elt("span", [txt]));
 //          else
           content.append(txt);
@@ -4399,9 +4178,12 @@ class LineBuilder {
         if (m.group(0) == "\t") {
           var tabSize = cm.options.tabSize, tabWidth = tabSize - col % tabSize;
           txt = content.append(eltspan(spaceStr(tabWidth), "cm-tab"));
+          txt.setAttribute("role", "presentation");
+          txt.setAttribute("cm-text", "\t");
           this.col += tabWidth;
         } else {
           txt = cm.options.specialCharPlaceholder(m.group(0));
+          txt.setAttribute("cm-text", m[0]);
 //          if (ie && ie_version < 9) content.appendChild(elt("span", [txt]));
 //          else
           content.append(txt);
@@ -4423,17 +4205,14 @@ class LineBuilder {
     return null;
   }
 
-  buildTokenSplitSpaces(inner) {
-    split(Match match) {
-      String old = match[0];
-      var out = " ";
-      for (var i = 0; i < old.length - 2; ++i) out += i % 2 != 0 ? " " : "\u00a0";
-      out += " ";
-      return out;
+  splitSpaces(Match match) {
+    String old = match[0];
+    var out = " ";
+    for (var i = 0; i < old.length - 2; ++i) {
+      out += i % 2 != 0 ? " " : "\u00a0";
     }
-    return (String text, [style, startStyle, endStyle, title, css=""]) {
-      inner(text.replaceAllMapped(new RegExp(r' {3,}'), split), style, startStyle, endStyle, title, css);
-    };
+    out += " ";
+    return out;
   }
 
   // Work around nonsense dimensions being reported for stretches of
@@ -4463,6 +4242,15 @@ class LineBuilder {
       var widget =  marker.widgetNode;
       if (widget != null) {
         map..add(pos)..add(pos + size)..add(widget);
+      }
+      if (cm.display.input.needsContentAttribute) {
+        if (widget == null) {
+          widget = content.append(document.createElement("span"));
+        }
+        widget.setAttribute("cm-marker", "${marker.id}");
+      }
+      if (widget != null) {
+        cm.display.input.setUneditable(widget);
         content.append(widget);
       }
     }
@@ -4578,4 +4366,21 @@ class KeySpec {
   var type;
   var operator;
   var motionArgs;
+}
+
+class TouchTime extends Loc {
+  static DateTime base = new DateTime.fromMillisecondsSinceEpoch(0);
+
+  DateTime start;
+  TouchTime prev;
+  bool moved;
+  DateTime end;
+
+  TouchTime(this.start, this.prev, this.moved) : super(0, 0) {
+    end = base;
+  }
+
+  TouchTime.def() : super(0, 0) {
+    end = base;
+  }
 }

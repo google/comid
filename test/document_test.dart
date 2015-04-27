@@ -23,7 +23,6 @@ documentTest() {
         print("chrome ${chrome}");
         print("presto ${presto}");
         print("safari ${safari}");
-        print("khtml ${khtml}");
         print("ios ${ios}");
         print("mobile ${mobile}");
         print("mac ${mac}");
