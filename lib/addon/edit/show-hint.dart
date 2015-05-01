@@ -24,19 +24,6 @@ var RANGE = 500;
 //  return cm.showHint(newOpts);
 //};
 
-var asyncRunID = 0;
-retrieveHints(getter, cm, completion, then) {
-  if (completion.options.async) {
-    var id = ++asyncRunID;
-    // Note that last two args are swapped w.r.t. CodeMirror
-    getter(cm, completion.options, (hints) {
-      if (asyncRunID == id) then(hints);
-    });
-  } else {
-    then(getter(cm, completion.options));
-  }
-}
-
 void showHint([CodeMirror cm, CompletionOptions options]) {
   if (cm == null) return null;
   // We want a single cursor position.
@@ -48,13 +35,12 @@ void showHint([CodeMirror cm, CompletionOptions options]) {
     cm.state.completionActive.close();
   }
   var completion = cm.state.completionActive = new Completion(cm, options);
-  var getHints = completion.options.hint;
-  if (getHints == null) {
+  if (completion.options.hint == null) {
     return null;
   }
 
   cm.signal(cm, "startCompletion", cm);
-  return retrieveHints(getHints, cm, completion, (hints) { completion.showHints(hints); });
+  completion.update(true);
 }
 
 initialize() {
@@ -71,13 +57,24 @@ initialize() {
 class Completion {
   final CodeMirror cm;
   CompletionOptions options;
-  var widget;
-  var onClose;
-
+  Widget widget = null;
+  int debounce = 0;
+  int tick = 0;
+  Pos startPos;
+  int startLen;
+  Function activityFunc;
+  var data;
 
   Completion(this.cm, CompletionOptions options) {
     this.options = this.buildOptions(options);
-    this.widget = this.onClose = null;
+    this.widget = null;
+    this.debounce = 0;
+    this.tick = 0;
+    this.startPos = cm.getCursor();
+    this.startLen = cm.getLine(this.startPos.line).length;
+
+    var self = this;
+    cm.on(cm, "cursorActivity", this.activityFunc = (e) { self.cursorActivity(); });
   }
 
   close() {
@@ -85,12 +82,11 @@ class Completion {
       return;
     }
     cm.state.completionActive = null;
+    tick = null;
+    cm.off(cm, "cursorActivity", activityFunc);
 
     if (widget != null) {
       widget.close();
-    }
-    if (onClose != null) {
-      onClose();
     }
     cm.signal(cm, "endCompletion", cm);
   }
@@ -112,83 +108,45 @@ class Completion {
     close();
   }
 
-  showHints(ProposalList data) {
-    if (data == null || data.isEmpty || !active()) return close();
+  cursorActivity() {
+    if (debounce != 0) {
+      window.cancelAnimationFrame(debounce);
+      debounce = 0;
+    }
 
-    if (options.completeSingle && data.length == 1) {
-      pick(data, 0);
+    var pos = cm.getCursor(), line = cm.getLine(pos.line);
+    if (pos.line != startPos.line || line.length - pos.char != startLen - startPos.char ||
+        pos.char < startPos.char || cm.somethingSelected() ||
+        (pos.char > 0 && options.closeCharacters.hasMatch(line.substring(pos.char - 1, pos.char)))) {
+      close();
     } else {
-      showWidget(data);
+      debounce = window.requestAnimationFrame((n) { update(); });
+      if (widget != null) widget.disable();
     }
   }
 
-  showWidget(ProposalList data) {
-    widget = new Widget(this, data);
-    cm.signal(data, "shown");
-
-    int debounce = 0;
-    Completion completion = this;
-    bool finished = false;
-    var closeOn = options.closeCharacters;
-    var startPos = cm.getCursor();
-    var startLen = cm.getLine(startPos.line).length;
-
-    var requestAnimationFrame = window.requestAnimationFrame;
-    var cancelAnimationFrame = window.cancelAnimationFrame;
-
-    Function done;
-
-    finishUpdate(ProposalList data_) {
-      data = data_;
-      if (finished) {
-        return;
-      }
-      if (data == null || data.isEmpty) {
-        done();
-        return;
-      }
-      if (completion.widget) {
-        completion.widget.close();
-      }
-      completion.widget = new Widget(completion, data);
+  update([first]) {
+    if (this.tick == null) return;
+    if (this.data != null) cm.signal(cm, this.data, "update");
+    if (!this.options.async) {
+      this.finishUpdate(this.options.hint(this.cm, this.options), first);
+    } else {
+      var myTick = ++this.tick;
+      this.options.hint(this.cm, (data) {
+        if (tick == myTick) finishUpdate(data, first);
+      }, this.options);
     }
+  }
 
-    update(num x) {
-      if (finished) return;
-      cm.signal(data, "update");
-      retrieveHints(completion.options.hint, completion.cm, completion, finishUpdate);
+  finishUpdate(data, first) {
+    this.data = data;
+
+    var picked = (this.widget != null && this.widget.picked) || (first && this.options.completeSingle);
+    if (this.widget != null) this.widget.close();
+    if (data != null && data.list.length != 0) {
+      if (picked && data.list.length == 1) this.pick(data, 0);
+      else this.widget = new Widget(this, data);
     }
-
-    clearDebounce() {
-      if (debounce > 0) {
-        cancelAnimationFrame(debounce);
-        debounce = 0;
-      }
-    }
-
-    activity(e) {
-      clearDebounce();
-      var pos = completion.cm.getCursor(), line = completion.cm.getLine(pos.line);
-      if (pos.line != startPos.line || line.length - pos.char != startLen - startPos.char ||
-          pos.char < startPos.char || completion.cm.somethingSelected() ||
-          (pos.char != 0 && closeOn.hasMatch(line.substring(pos.char - 1, pos.char)))) {
-        completion.close();
-      } else {
-        debounce = requestAnimationFrame(update);
-        if (completion.widget != null) completion.widget.close();
-      }
-    }
-
-    done = () {
-      if (finished) return;
-      finished = true;
-      completion.close();
-      completion.cm.off(cm, "cursorActivity", activity);
-      if (data != null) cm.signal(data, "close");
-    };
-
-    cm.on(cm, "cursorActivity", activity);
-    onClose = done;
   }
 
   CompletionOptions buildOptions(CompletionOptions options) {
@@ -262,6 +220,7 @@ Proposal proposal(var target) {
 class Widget {
   Completion completion;
   ProposalList data;
+  bool picked;
   UListElement hints;
   int selectedHint;
   Map keyMap;
@@ -270,6 +229,7 @@ class Widget {
   Widget(Completion completion, ProposalList data) {
     this.completion = completion;
     this.data = data;
+    this.picked = false;
 
     var widget = this;
     CodeMirror cm = completion.cm;
@@ -413,6 +373,12 @@ class Widget {
     cm.off(cm, "scroll", onScroll);
   }
 
+  disable() {
+    completion.cm.removeKeyMap(this.keyMap);
+    keyMap = {'Enter': () { picked = true; }};
+    completion.cm.addKeyMap(keyMap);
+  }
+
   pick() {
     completion.pick(data, selectedHint);
   }
@@ -517,6 +483,7 @@ class ProposalList extends Object with EventManager {
     }
   }
 
+  List get list => _list;
   bool get isEmpty => _list.isEmpty;
   int get length => _list.length;
   Proposal operator [] (n) {

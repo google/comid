@@ -76,7 +76,8 @@ Function openDialog(CodeMirror cm, dynamic template, Function callback, [Map opt
   if (inp != null) {
     if (options.containsKey('value')) {
       inp.value = options['value'];
-      if (options['selectValueOnOpen'] != false) {
+      var selectIt = options['selectValueOnOpen'];
+      if (selectIt != null && selectIt != false) {
         inp.select();
       }
     }

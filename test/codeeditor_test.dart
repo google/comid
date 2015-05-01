@@ -545,7 +545,6 @@ editorTest() {
       present() {
         List<SpanElement> spans = getElementsByTagName(editor.display.lineDiv, "span");
         for (var i = 0; i < spans.length; i++) {
-          window.console.debug(spans[i].style.color);
           if ((spans[i].style.color == "rgb(0, 255, 255)" ||
               // Added test for "cyan" to make Firefox happy.
               spans[i].style.color == "cyan") && spans[i].text == "cdef")
@@ -2171,8 +2170,8 @@ editorTest() {
 //        expect(toks[i].string, expect[1]);
 //        i++;
 //      });
-      tokPlus.runtimeType;
-      toks.runtimeType;
+      tokPlus.hashCode;
+      toks.hashCode;
     });
 
     test('getTokenTypeAt', () {
@@ -2185,7 +2184,7 @@ editorTest() {
       expect(byClassName(editor.getWrapperElement(), "cm-foo").length, 1);
       tok = editor.getTokenTypeAt(new Pos(0, 6));
 //      expect(tok, "string");
-      tok.runtimeType;
+      tok.hashCode;
     });
 
     test('resizeLineWidget', () {

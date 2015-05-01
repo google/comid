@@ -94,7 +94,7 @@ testMovedownFixed(CodeMirror cm, bool hScroll) {
   for (var i = 0; i < 30; i++) {
     cm.replaceSelection("x\n");
     cursorBottom = cm.cursorCoords(null, "window").bottom;
-    expect(cursorBottom <= bottom, isTrue);
+    expect(cursorBottom <= bottom, isTrue, reason: "i = $i");
   }
   expect(cursorBottom >= bottom - 5, isTrue);
 }

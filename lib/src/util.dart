@@ -497,7 +497,7 @@ selectInput(TextAreaElement node) {
   }
 }
 
-var _nonASCIISingleCaseWordChar = new RegExp(r'[\u00df\u0590-\u05f4\u0600-\u06ff\u3040-\u309f\u30a0-\u30ff\u3400-\u4db5\u4e00-\u9fcc\uac00-\ud7af]');
+var _nonASCIISingleCaseWordChar = new RegExp(r'[\u00df\u0587\u0590-\u05f4\u0600-\u06ff\u3040-\u309f\u30a0-\u30ff\u3400-\u4db5\u4e00-\u9fcc\uac00-\ud7af]');
 var _simpleWordChar = new RegExp(r'\w');
 _isWordCharBasic(String ch) {
   return _simpleWordChar.hasMatch(ch) || ch.codeUnitAt(0) > 0x80 &&

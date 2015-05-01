@@ -22,6 +22,15 @@ Chrome (JS): all pass
 Safari (JS): all pass
 Firefox (JS): all pass
 
+Test update, version 5.2.1
+Dartium (native): all pass
+Chrome (JS): all pass
+Safari (JS): all pass
+Firefox (JS): all pass
+Android (JS): 4 failures, "Scrolling, movedown_hscroll_fixed",
+  "Scrolling, movedown_hscroll_resize", "Scrolling, moveright_scroll",
+  "Scrolling, moveright_scroll_wrap"
+
 TODO test
 hint/xml-hint.js
 hint/html-hint.js
@@ -29,3 +38,5 @@ hint/css-hint.js
 fold/*.js
 
 Merge all mode-specific css into each css mode file. E.g. show-hint.css
+
+Issues with Operation.endOperation_R2

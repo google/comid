@@ -51,6 +51,7 @@ class Options {
   Function get lineNumberFormatter => _opts['lineNumberFormatter'];
   bool get showCursorWhenSelecting => _opts['showCursorWhenSelecting'];
   bool get resetSelectionOnContextMenu=>_opts['resetSelectionOnContextMenu'];
+  bool get lineWiseCopyCut => _opts['lineWiseCopyCut'];
   dynamic get readOnly => _opts['readOnly']; // true | false | "nocursor"
   bool get disableInput => _opts['disableInput'];
   bool get dragDrop => _opts['dragDrop'];
@@ -213,6 +214,7 @@ class Options {
     option("showCursorWhenSelecting", false, updateSelection, true);
 
     option("resetSelectionOnContextMenu", true);
+    option("lineWiseCopyCut", true);
 
     option("readOnly", false, (cm, val, old) {
       if (val == "nocursor") {
@@ -227,7 +229,7 @@ class Options {
     option("disableInput", false, (cm, val, old) {
       if (val != null) cm.display.input.reset();
     }, true);
-    option("dragDrop", true);
+    option("dragDrop", true, (cm, val, old) { cm.dragDropChanged(val, old); });
 
     option("cursorBlinkRate", 530);
     option("cursorScrollMargin", 0);

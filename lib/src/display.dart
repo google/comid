@@ -43,6 +43,7 @@ class Displ implements Display {
   int knownScrollbarWidth;
   var detectingSelectAll;
   Timer blinker;
+  DragFunctions dragFunctions;
 
   /// Create a new Display. If [place] is a Node then the Div element will be
   /// appended to it. [place] may be null, in which case the Div is not attached
@@ -1340,4 +1341,9 @@ class ScrollMeasure {
   ScrollMeasure(this.clientHeight, this.viewHeight, this.scrollWidth,
       this.clientWidth, this.viewWidth, this.barLeft, this.docHeight,
       this.scrollHeight, this.nativeBarWidth, this.gutterWidth);
+}
+
+class DragFunctions {
+  Function simple, start, drop;
+  DragFunctions({this.simple, this.start, this.drop});
 }
