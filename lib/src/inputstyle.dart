@@ -42,7 +42,8 @@ abstract class InputStyle extends Object with EventManager {
     return cm.options.readOnly != false || cm.doc.cantEdit;
   }
 
-  void applyTextInput(CodeEditor cm, [String inserted, int deleted = 0, Selection sel]) {
+  void applyTextInput(CodeEditor cm, [String inserted, int deleted = 0,
+      Selection sel, String origin]) {
     Document doc = cm.doc;
     cm.display.shift = false;
     if (sel == null) sel = doc.sel;
@@ -77,7 +78,11 @@ abstract class InputStyle extends Object with EventManager {
       updateInput = cm.curOp.updateInput;
       var changeEvent = new Change(from, to,
           multiPaste != null ? multiPaste[i % multiPaste.length] : textLines,
-          cm.state.pasteIncoming ? "paste" : cm.state.cutIncoming ? "cut" : "+input");
+          origin == null
+            ? (cm.state.pasteIncoming
+                ? "paste"
+                : cm.state.cutIncoming ? "cut" : "+input")
+            : origin);
       doc.makeChange(changeEvent);
       signalLater(cm, "inputRead", cm, changeEvent);
       // When an 'electric' character is inserted, immediately trigger a reindent
@@ -86,18 +91,20 @@ abstract class InputStyle extends Object with EventManager {
           (i == 0 || sel.ranges[i - 1].head.line != range.head.line)) {
         var mode = cm.getModeAt(range.head);
         var end = cm.changeEnd(changeEvent);
+        var indented = false;
         if (mode.electricChars != null) {
           for (var j = 0; j < mode.electricChars.length; j++) {
             if (inserted.indexOf(mode.electricChars.substring(j,j+1)) > -1) {
-              cm.indentLine(end.line, "smart");
+              indented = cm.indentLine(end.line, "smart");
               break;
             }
           }
         } else if (mode.electricInput != null) {
           if (mode.electricInput.hasMatch(doc._getLine(end.line).text.substring(0, end.char))) {
-            cm.indentLine(end.line, "smart");
+            indented = cm.indentLine(end.line, "smart");
           }
         }
+        if (indented) signalLater(cm, "electricInput", cm, end.line);
       }
     }
     cm.ensureCursorVisible();
@@ -149,6 +156,7 @@ class TextareaInput extends InputStyle {
   DivElement wrapper;
   TextAreaElement textarea;
   bool contextMenuPending = false;
+  var composing;
 
   TextareaInput(CodeEditor cm) : super(cm) {
     // See input.poll and input.reset
@@ -165,6 +173,7 @@ class TextareaInput extends InputStyle {
     this.inaccurateSelection = false;
     // Used to work around IE issue with selection being forgotten when focus moves away from textarea
     this.textSelection = null;
+    this.composing = null;
   }
 
   init(Displ display) {
@@ -218,6 +227,8 @@ class TextareaInput extends InputStyle {
           te.value = lastCopied.join("\n");
           selectInput(te);
         }
+      } else if (!cm.options.lineWiseCopyCut) {
+        return;
       } else {
         var ranges = copyableRanges(cm);
         lastCopied = ranges.text;
@@ -243,6 +254,21 @@ class TextareaInput extends InputStyle {
     // Prevent normal selection in the editor (we handle our own)
     on(display.lineSpace, "selectstart", (e) {
       if (!cm.eventInWidget(display, e)) e_preventDefault(e);
+    });
+
+    on(te, "compositionstart", (e) {
+      var start = cm.getCursor("from");
+      var end = cm.getCursor("to");
+      input.composing = new ImeComposition(
+        start: start,
+        range: cm.markText(start, end, className: "CodeMirror-composing"));
+    });
+    on(te, "compositionend", (e) {
+      if (input.composing != null) {
+        input.poll();
+        input.composing.range.clear();
+        input.composing = null;
+      }
     });
   }
 
@@ -381,9 +407,14 @@ class TextareaInput extends InputStyle {
       return false;
     }
 
-    if (text.codeUnitAt(0) == 0x200b &&
-        cm.doc.sel == cm.display.selForContextMenu && prevInput.isEmpty) {
-      prevInput = "\u200b";
+    if (cm.doc.sel == cm.display.selForContextMenu) {
+      var first = text.codeUnitAt(0);
+      if (first == 0x200b && prevInput.isEmpty) prevInput = "\u200b";
+      if (first == 0x21da) {
+        reset();
+        cm.execCommand("undo");
+        return false;
+      }
     }
     // Find the part of the input that is actually new
     var same = 0, l = min(prevInput.length, text.length);
@@ -391,11 +422,18 @@ class TextareaInput extends InputStyle {
 
     var self = this;
     cm.runInOp(cm, () {
-      applyTextInput(cm, text.substring(same), prevInput.length - same);
+      applyTextInput(cm, text.substring(same), prevInput.length - same,
+                     null, self.composing != null ? "*compose" : null);
 
       // Don't leave long text in the textarea, since it makes further polling slow
       if (text.length > 1000 || text.indexOf("\n") > -1) input.value = self.prevInput = "";
       else self.prevInput = text;
+
+      if (self.composing != null) {
+        self.composing.range.clear();
+        self.composing.range = cm.markText(self.composing.start, cm.getCursor("to"),
+                                           className: "CodeMirror-composing");
+      }
     });
     return true;
   }
@@ -443,9 +481,11 @@ class TextareaInput extends InputStyle {
     // this adds a zero-width space so that we can later check whether
     // it got selected.
     prepareSelectAllHack() {
-      if (te.selectionStart != null) {
+      if (te.selectionStart != null && te.selectionStart != 0) {
         var selected = cm.somethingSelected();
-        var extval = te.value = "\u200b" + (selected ? te.value : "");
+        var extval = "\u200b" + (selected ? te.value : "");
+        te.value = "\u21da"; // Used to catch context-menu undo
+        te.value = extval;
         input.prevInput = selected ? "" : "\u200b";
         te.selectionStart = 1; te.selectionEnd = extval.length;
         // Re-set this, in case some other handler touched the
@@ -462,11 +502,12 @@ class TextareaInput extends InputStyle {
       }
 
       // Try to detect the user choosing select-all
-      if (te.selectionStart != null) {
+      if (te.selectionStart != null && te.selectionStart != 0) {
         if (!ie || (ie && ie_version < 9)) prepareSelectAllHack();
         var i = 0, poll;
         poll = () {
-          if (display.selForContextMenu == cm.doc.sel && te.selectionStart == 0) {
+          if (display.selForContextMenu == cm.doc.sel && te.selectionStart == 0 &&
+              te.selectionEnd > 0 && input.prevInput == "\u200b") {
             cm.operation(cm, cm.commands['selectAll'](cm))();
           }
           else if (i++ < 10) display.detectingSelectAll = setTimeout(poll, 500);
@@ -566,6 +607,8 @@ class ContentEditableInput extends InputStyle {
       if (cm.somethingSelected()) {
         lastCopied = cm.getSelections();
         if (e.type == "cut") cm.replaceSelection("", null, "cut");
+      } else if (!cm.options.lineWiseCopyCut) {
+        return;
       } else {
         var ranges = copyableRanges(cm);
         lastCopied = ranges.text;
@@ -1027,6 +1070,13 @@ class Composing {
   Composing(this.sel, this.data, this.startData) {
     handled = false;
   }
+}
+
+class ImeComposition {
+  Pos start;
+  TextMarker range;
+
+  ImeComposition({this.start, this.range});
 }
 
 class CopyableRanges {

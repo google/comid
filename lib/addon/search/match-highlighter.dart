@@ -150,13 +150,14 @@ Overlay makeOverlay(String query, RegExp hasBoundary, style) {
 
 //  CodeMirror.defineExtension("showMatchesOnScrollbar", function(query, caseFold, className) {
 showMatchesOnScrollbar(CodeMirror cm, query, caseFold, [options]) {
-  if (options is String) options = new AnnotateOptions(className: options);
-  if (options == null) options = new AnnotateOptions();
+  if (options is String) options = new SearchOptions(className: options);
+  if (options == null) options = new SearchOptions();
   return new SearchAnnotation(cm, query, caseFold, options);
 }
 
 class SearchAnnotation {
   CodeMirror cm;
+  SearchOptions options;
   var annotation;
   var query;
   var caseFold;
@@ -165,8 +166,9 @@ class SearchAnnotation {
   var update;
   var changeHandler;
 
-  SearchAnnotation(CodeMirror cm, query, bool caseFold, AnnotateOptions options) {
+  SearchAnnotation(CodeMirror cm, query, bool caseFold, SearchOptions options) {
     this.cm = cm;
+    this.options = options;
     if (options.listenForChanges == null) options.listenForChanges = false;
     if (options.className == null) options.className = DEFAULT_SEARCH_MATCH_CLASS_NAME;
     this.annotation = annotateScrollbar(cm, options);
@@ -194,11 +196,15 @@ class SearchAnnotation {
       if (match.to.line >= gap.from) matches.removeAt(i--);
     }
     var cursor = getSearchCursor(cm, query, new Pos(gap.from, 0), caseFold);
+    int maxMatches = MAX_MATCHES;
+    if (options != null && options.maxMatches > 0) {
+      maxMatches = options.maxMatches;
+    }
     while (cursor.findNext()) {
       var match = new SearchMatch(from: cursor.from(), to: cursor.to());
       if (match.from.line >= this.gap.to) break;
       matches.insert(i++, match);
-      if (matches.length > MAX_MATCHES) break;
+      if (matches.length > maxMatches) break;
     }
     gap = null;
   }
@@ -250,7 +256,7 @@ Annotation annotateScrollbar(CodeMirror cm, className) {
 
 class Annotation {
   CodeMirror cm;
-  AnnotateOptions options;
+  SearchOptions options;
   int buttonHeight;
   List annotations;
   DivElement div;
@@ -261,9 +267,9 @@ class Annotation {
   var doUpdate;
 
   Annotation(CodeMirror cm, var options) {
-    if (options is String) options = new AnnotateOptions(className: options);
+    if (options is String) options = new SearchOptions(className: options);
     this.cm = cm;
-    this.options = options as AnnotateOptions;
+    this.options = options as SearchOptions;
     this.buttonHeight = options.scrollButtonHeight;
     if (this.buttonHeight == 0) {
       this.buttonHeight = cm.getOption("scrollButtonHeight");
@@ -315,18 +321,37 @@ class Annotation {
     var cm = this.cm, hScale = this.hScale;
 
     var frag = document.createDocumentFragment(), anns = this.annotations;
+
+    bool wrapping = cm.getOption("lineWrapping");
+    var singleLineH = wrapping ? cm.defaultTextHeight() * 1.5 : 0;
+    var curLine = null, curLineObj = null;
+    num getY(Pos pos, bool top) {
+      if (curLine != pos.line) {
+        curLine = pos.line;
+        curLineObj = cm.getLineHandle(curLine);
+      }
+      if (wrapping && curLineObj.height > singleLineH) {
+        var rect = cm.charCoords(pos, "local");
+        return top ? rect.top : rect.bottom;
+      }
+      var topY = cm.heightAtLine(curLineObj, "local");
+      return topY + (top ? 0 : curLineObj.height);
+    }
+
     num nextTop = 0;
     if (cm.display.barWidth != 0) {
       for (var i = 0; i < anns.length; i++) {
         var ann = anns[i];
-        var top = nextTop;
-        if (top == 0) top = cm.charCoords(ann.from, "local").top * hScale;
-        var bottom = cm.charCoords(ann.to, "local").bottom * hScale;
+//        var top = nextTop;
+//        if (top == 0) top = cm.charCoords(ann.from, "local").top * hScale;
+//        var bottom = cm.charCoords(ann.to, "local").bottom * hScale;
+        var top = nextTop != 0 ? nextTop : getY(ann.from, true) * hScale;
+        var bottom = getY(ann.to, false) * hScale;
         while (i < anns.length - 1) {
-          nextTop = cm.charCoords(anns[i + 1].from, "local").top * hScale;
+          nextTop = getY(anns[i + 1].from, true) * hScale;
           if (nextTop > bottom + .9) break;
           ann = anns[++i];
-          bottom = cm.charCoords(ann.to, "local").bottom * hScale;
+          bottom = getY(ann.to, false) * hScale;
         }
         if (bottom == top) continue;
         var height = max(bottom - top, 3);
@@ -349,10 +374,12 @@ class Annotation {
   }
 }
 
-class AnnotateOptions {
+class SearchOptions {
   String className;
   bool listenForChanges;
   int scrollButtonHeight;
+  int maxMatches;
 
-  AnnotateOptions({this.className, this.listenForChanges, this.scrollButtonHeight});
+  SearchOptions({this.className, this.listenForChanges: false,
+    this.scrollButtonHeight: 0, this.maxMatches: 0});
 }

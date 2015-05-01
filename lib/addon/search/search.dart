@@ -47,9 +47,19 @@ Overlay searchOverlay(queryArg, [bool caseInsensitive = false]) {
 class SearchState {
   Pos posFrom, posTo;
   dynamic query; // Pattern: String or RegExp
+  String _lastQuery;
   var overlay, annotate;
 
   SearchState();
+
+  Pattern get lastQuery {
+    return _lastQuery == null ? "" : _lastQuery;
+  }
+  set lastQuery(val) {
+    _lastQuery = val is RegExp
+        ? "/${val.pattern}/${val.isCaseSensitive ? 'i' : ''}"
+        : val;
+  }
 }
 
 SearchState getSearchState(CodeMirror cm) {
@@ -65,7 +75,7 @@ SearchCursor getSearchCursor(CodeMirror cm, query, [pos, caseFold]) {
   return new SearchCursor(cm.doc, query, pos, caseFold);
 }
 void dialog(CodeMirror cm, text, shortText, deflt, f) {
-  ui.openDialog(cm, text, f, {'value': deflt});
+  ui.openDialog(cm, text, f, {'value': deflt, 'selectValueOnOpen': true});
 }
 void confirmDialog(CodeMirror cm, text, shortText, fs) {
   ui.openConfirm(cm, text, fs);
@@ -91,7 +101,9 @@ doSearch([CodeMirror cm, bool rev = false]) {
     findNext(cm, rev);
     return;
   }
-  dialog(cm, queryDialog, "Search for:", cm.getSelection(), (query) {
+  String q = cm.getSelection();
+  if (q.isEmpty) q = state.lastQuery;
+  dialog(cm, queryDialog, "Search for:", q, (query) {
     cm.operation(cm, () {
       if (query == null || state.query != null) return;
       state.query = parseQuery(query);
@@ -127,6 +139,7 @@ clearSearch([CodeMirror cm]) {
   if (cm == null) return;
   cm.operation(cm, () {
     var state = getSearchState(cm);
+    state.lastQuery = state.query;
     if (state.query == null) return;
     state.query = null;
     cm.removeOverlay(state.overlay);
@@ -153,7 +166,9 @@ _extract(Match matchOfSubstIndex, Match matchToExtract) {
 replace([CodeMirror cm, bool all = false]) {
   if (cm == null) return;
   if (cm.getOption("readOnly")) return;
-  dialog(cm, replaceQueryDialog, "Replace:", cm.getSelection(), (query) {
+  String query = cm.getSelection();
+  if (query.isEmpty) query = getSearchState(cm).lastQuery;
+  dialog(cm, replaceQueryDialog, "Replace:", query, (query) {
     if (query == null) return;
     query = parseQuery(query);
     dialog(cm, replacementQueryDialog, "Replace with:", "", (String text) {
@@ -429,10 +444,10 @@ class SearchCursor {
   Pos from() => atOccurrence ? pos.from : null;
   Pos to() => atOccurrence ? pos.to : null;
 
-  void replace(String newText) {
+  void replace(String newText, [origin]) {
     if (!atOccurrence) return;
     var lines = doc.splitLines(newText);
-    doc.replaceRange(lines, pos.from, pos.to);
+    doc.replaceRange(lines, pos.from, pos.to, origin);
     pos.to = new Pos(
         pos.from.line + lines.length - 1,
         lines[lines.length - 1].length +

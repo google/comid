@@ -44,6 +44,7 @@ bool flipCtrlCmd = mac && (qtwebkit || (presto && _presto_vsn() < 12.11));
 bool captureRightClick = gecko || (ie && ie_version >= 9);
 
 // Optimize some code when these features are not used.
+// TODO These should not be global.
 bool sawReadOnlySpans = false, sawCollapsedSpans = false;
 
 // Number of pixels added to scroller and sizer to hide scrollbar.

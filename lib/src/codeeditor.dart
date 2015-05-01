@@ -10,7 +10,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
    * triple of integers "major.minor.patch", where patch is zero for releases,
    * and something else (usually one) for dev snapshots.
    */
-  static const version = "5.0.1";
+  static const version = "5.2.1";
 
 //  static Options defaults = new Options();
   static Map<String, CommandHandler> defaultCommands = {};
@@ -195,15 +195,16 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     })();
   }
 
-  void indentLine(int n, [dynamic dir, bool aggressive = false]) {
-    methodOp(() {
+  bool indentLine(int n, [dynamic dir, bool aggressive = false]) {
+    return methodOp(() {
       if (dir is! String && dir is! num) {
         if (dir == null) dir = options.smartIndent ? "smart" : "prev";
         else dir = dir ? "add" : "subtract";
       }
       if (doc.isLine(n)) {
-        _indentLine(n, dir, aggressive);
+        return _indentLine(n, dir, aggressive);
       }
+      return false;
     })();
   }
 
@@ -328,11 +329,20 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     var height = doc.fromCoordSystem(new Loc(ht, 0), mode).top;
     return doc.lineAtHeight(doc, height + display.viewOffset);
   }
-  num heightAtLine(int line, [String mode = "page"]) {
-    var end = false, last = doc.first + doc.size - 1;
-    if (line < doc.first) line = doc.first;
-    else if (line > last) { line = last; end = true; }
-    var lineObj = doc._getLine(line);
+  num heightAtLine(var line, [String mode = "page"]) {
+    var end = false, lineObj;
+    if (line is num) {
+      var last = doc.first + doc.size - 1;
+      if (line < doc.first) {
+        line = doc.first;
+      } else if (line > last) {
+        line = last;
+        end = true;
+      }
+      lineObj = doc._getLine(line);
+    } else {
+      lineObj = line;
+    }
     return doc.intoCoordSystem(lineObj, new Rect(), mode).top +
       (end ? doc.height - doc.heightAtLine(lineObj) : 0);
   }
@@ -1331,7 +1341,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
   // (typically set to true for forced single-line indents), empty
   // lines are not indented, and places where the mode returns Pass
   // are left alone.
-  _indentLine(int n, dynamic how, bool aggressive) {
+  bool _indentLine(int n, dynamic how, bool aggressive) {
     var state;
     if (how == null) how = "add";
     if (how == "smart") {
@@ -1356,7 +1366,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
       indentation = doc.mode.indent(state,
           line.text.substring(curSpaceString.length), line.text);
       if (indentation == Pass || indentation > 150) {
-        if (!aggressive) return;
+        if (!aggressive) return false;
         how = "prev";
       }
     }
@@ -1386,6 +1396,8 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     if (indentString != curSpaceString) {
       doc.replaceRange(indentString, new Pos(n, 0),
           new Pos(n, curSpaceString.length), "+input");
+      line.stateAfter = null;
+      return true;
     } else {
       // Ensure that, if the cursor was in the whitespace at the start
       // of the line, it is moved to the end of that space.
@@ -1398,7 +1410,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
         }
       }
     }
-    line.stateAfter = null;
+    return false;
   }
 
   // Methods to get the editor into a consistent state again when options change.
@@ -1782,15 +1794,11 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
       d.wrapper.scrollTop = d.wrapper.scrollLeft = 0;
     });
 
-    drag_(e) {
-      if (!signalDOMEvent(cm, e)) e_stop(e);
-    }
-    if (cm.options.dragDrop) {
-      on(d.scroller, "dragstart", (e) { onDragStart(cm, e); });
-      on(d.scroller, "dragenter", (e) { drag_(e); });
-      on(d.scroller, "dragover", (e) { drag_(e); });
-      on(d.scroller, "drop", (e) => operation(cm, () { onDrop(e); })());
-    }
+    d.dragFunctions = new DragFunctions(
+      simple: (e) {if (!signalDOMEvent(cm, e)) e_stop(e);},
+      start: (e) {onDragStart(cm, e);},
+      drop: (e) {operation(cm, onDrop(e))();}
+    );
 
     var inp = d.input.getField();
     on(inp, "keyup", (e) { onKeyUp(e); });
@@ -1798,6 +1806,18 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     on(inp, "keypress", (e) => operation(cm, () { onKeyPress(e); })());
     on(inp, "focus", (e) => onFocus(cm));
     on(inp, "blur", (e) => onBlur(cm));
+  }
+
+  dragDropChanged(value, old) {
+    var wasOn = old != Options.Init;
+    if (!value != !wasOn) {
+      var funcs = display.dragFunctions;
+      var toggle = value ? on : off;
+      toggle(display.scroller, "dragstart", funcs.start);
+      toggle(display.scroller, "dragenter", funcs.simple);
+      toggle(display.scroller, "dragover", funcs.simple);
+      toggle(display.scroller, "drop", funcs.drop);
+    }
   }
 
   // Called when the window resizes
@@ -1910,7 +1930,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
   ClickTracker lastClick, lastDoubleClick;
   leftButtonDown(CodeEditor cm, MouseEvent e, Pos start) {
     if (ie) setTimeout(display.input.ensureFocus, 0);//bind(ensureFocus, cm), 0);
-    else display.input.ensureFocus();
+    else curOp.focus = activeElt();
 
     var now = new DateTime.now();
     String type;
@@ -1938,6 +1958,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
   // happen, and treat as a click if it didn't.
   leftButtonStartDrag(CodeEditor cm, MouseEvent e, start, modifier) {
     var display = cm.display;
+    var startTime = new DateTime.now();
 //    var dragEnd;
     dragEnd(MouseEvent e) => operation(cm, () {
       if (webkit) display.scroller.draggable = false;
@@ -1947,8 +1968,11 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
       if ((e.client.x - e.client.x).abs() +
           (e.client.y - e.client.y).abs() < 10) {
         e_preventDefault(e);
-        if (!modifier)
-          doc._extendSelection(start);
+        if (!modifier) {
+          var endTime = new DateTime.now();
+          var minTime = endTime.subtract(new Duration(milliseconds: 200));
+          if (minTime.isBefore(startTime)) doc._extendSelection(start);
+        }
         // Work around unexplainable focus problem in IE9 (#2127) and Chrome (#3081)
         //if (ie && ie_version == 9)
         if (webkit) {
@@ -2090,7 +2114,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
       var cur = posFromMouse(cm, e, true, type == "rect");
       if (cur == null) return;
       if (cmp(cur, lastPos) != 0) {
-        display.input.ensureFocus();
+        cm.curOp.focus = activeElt();
         extendTo(cur);
         var visible = display.visibleLines(doc);
         if (cur.line >= visible.to || cur.line < visible.from)
@@ -2211,7 +2235,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
         var text = e.dataTransfer.getData("Text");
         if (!text.isEmpty) {
           var selected;
-          if (cm.state.draggingText != null && !(mac ? e.metaKey : e.ctrlKey))
+          if (cm.state.draggingText != null && !(mac ? e.altKey : e.ctrlKey))
             selected = doc.listSelections();
           doc.setSelectionNoUndo(simpleSelection(pos, pos));
           if (selected.length != 0) {
@@ -2513,7 +2537,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
 
   var lastStoppedKey = null;
   onKeyDown(var e) {
-    display.input.ensureFocus();
+    curOp.focus = activeElt();
     if (signalDOMEvent(this, e)) return;
     // IE does strange things with escape. (Ignoring pre 11)
 //    if (ie && ie_version < 11 && e.keyCode == 27) e.returnValue = false;
@@ -3527,6 +3551,8 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
         lst(order).to -= m.group(0).length;
         order.add(new BidiSpan(0, len - m.group(0).length, len));
       }
+      if (order[0].level == 2)
+        order.insert(0, new BidiSpan(1, order[0].to, order[0].to));
       if (order[0].level != lst(order).level)
         order.add(new BidiSpan(order[0].level, len, len));
 
@@ -3821,6 +3847,7 @@ class Operation {
   int scrollLeft;
   int scrollTop;         // Intermediate scroll position, not pushed to DOM yet
   ScrollDelta scrollToPos;       // Used to scroll to a specific position
+  Element focus = null;
   int id = ++nextOpId;   // Unique ID
   OperationGroup ownsGroup;
   bool mustUpdate = false;
@@ -3882,7 +3909,9 @@ class Operation {
     // and ensure the document's width matches it.
     // updateDisplay_W2 will use these properties to do the actual resizing
     if (display.maxLineChanged && !cm.options.lineWrapping) {
-      adjustWidthTo = cm.doc.measureChar(display.maxLine, display.maxLine.text.length).left + 3;
+      if (display.maxLine != null) {
+        adjustWidthTo = cm.doc.measureChar(display.maxLine, display.maxLine.text.length).left + 3;
+      }
       cm.display.sizerWidth = adjustWidthTo;
       barMeasure.scrollWidth =
         max(display.scroller.clientWidth,
@@ -3920,6 +3949,7 @@ class Operation {
     if (cm.state.focused && updateInput != null) {
       cm.display.input.reset(typing);
     }
+    if (focus != null && focus == activeElt()) cm.display.input.ensureFocus();
   }
 
   endOperation_finish() {
@@ -4280,8 +4310,14 @@ class LineBuilder {
         for (var j = 0; j < spans.length; ++j) {
           var sp = spans[j];
           var m = sp.marker;
-          if ((sp.from == null || sp.from <= pos) && (sp.to == null || sp.to > pos)) {
-            if (sp.to != null && nextChange > sp.to) { nextChange = sp.to; spanEndStyle = ""; }
+          if (m.type == "bookmark" && sp.from == pos && m.widgetNode != null) {
+            foundBookmarks.add(m);
+          } else if ((sp.from == null || sp.from <= pos) && (sp.to == null || sp.to > pos ||
+              m.collapsed && sp.to == pos && sp.from == pos)) {
+            if (sp.to != null && sp.to != pos && nextChange > sp.to) {
+              nextChange = sp.to;
+              spanEndStyle = "";
+            }
             if (m.className != null && !m.className.isEmpty) spanStyle += " " + m.className;
             if (m.css != null) css = m.css;
             if (m.startStyle != null && sp.from == pos) spanStartStyle += " " + m.startStyle;
@@ -4292,12 +4328,12 @@ class LineBuilder {
           } else if ((sp.from != null && sp.from > pos) && nextChange > sp.from) {
             nextChange = sp.from;
           }
-          if (m.type == "bookmark" && sp.from == pos && m.widgetNode != null) foundBookmarks.add(m);
         }
         if (collapsed != null && (collapsed.from == null ? 0 : collapsed.from) == pos) {
           buildCollapsedSpan((collapsed.to == null ? len + 1 : collapsed.to) - pos,
                              collapsed.marker, collapsed.from == null);
           if (collapsed.to == null) return;
+          if (collapsed.to == pos) collapsed = null;
         }
         if (collapsed == null) {
           for (var j = 0; j < foundBookmarks.length; ++j) {
