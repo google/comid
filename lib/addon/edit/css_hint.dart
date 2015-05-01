@@ -5,7 +5,7 @@
 library comid.showhints.css;
 
 import 'package:comid/codemirror.dart';
-import 'package:comid/addon/edit/show-hint.dart';
+import 'package:comid/addon/edit/show_hint.dart';
 import 'package:comid/addon/mode/css.dart';
 
 initialize() {

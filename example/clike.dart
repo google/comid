@@ -9,7 +9,7 @@ import 'package:comid/codemirror.dart';
 import 'package:comid/addon/mode/clike.dart';
 import 'package:comid/addon/edit/matchbrackets.dart';
 import 'package:comid/addon/edit/closebrackets.dart';
-import 'package:comid/addon/fold/fold-all.dart' as fold;
+import 'package:comid/addon/fold/fold_all.dart' as fold;
 
 main() {
   ClikeMode.initialize();

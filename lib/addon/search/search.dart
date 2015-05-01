@@ -7,7 +7,7 @@ library comid.search;
 import 'dart:math';
 import 'package:comid/codemirror.dart';
 import 'package:comid/addon/dialog/dialog.dart' as ui;
-import 'package:comid/addon/search/match-highlighter.dart'
+import 'package:comid/addon/search/match_highlighter.dart'
     show showMatchesOnScrollbar, initializeMatchHighlighting;
 
 class Overlay extends Mode {

@@ -7,7 +7,7 @@ library comid.showhints.xml;
 import 'dart:math';
 
 import 'package:comid/codemirror.dart';
-import 'package:comid/addon/edit/show-hint.dart';
+import 'package:comid/addon/edit/show_hint.dart';
 import 'package:comid/addon/mode/xml.dart';
 
 getHints(CodeMirror cm, Map options) {

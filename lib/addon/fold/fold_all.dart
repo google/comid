@@ -5,12 +5,12 @@
 library comid.mode.fold.all;
 
 import 'foldcode.dart' as code;
-import 'comment-fold.dart' as comment;
-import 'brace-fold.dart' as brace;
+import 'comment_fold.dart' as comment;
+import 'brace_fold.dart' as brace;
 import 'foldgutter.dart' as gutter;
-import 'indent-fold.dart' as indent;
-import 'markdown-fold.dart' as markdown;
-import 'xml-fold.dart' as xml;
+import 'indent_fold.dart' as indent;
+import 'markdown_fold.dart' as markdown;
+import 'xml_fold.dart' as xml;
 
 export 'foldcode.dart';
 
