@@ -9,8 +9,8 @@ import 'package:comid/codemirror.dart';
 import 'package:comid/addon/mode/dart.dart';
 import 'package:comid/addon/edit/matchbrackets.dart';
 import 'package:comid/addon/edit/closebrackets.dart';
-import 'package:comid/addon/edit/show-hint.dart' as hints;
-import 'package:comid/addon/edit/html-hint.dart' as html;
+import 'package:comid/addon/edit/show_hint.dart' as hints;
+import 'package:comid/addon/edit/html_hint.dart' as html;
 import 'package:comid/addon/comment/comment.dart' as comments;
 import "package:comid/addon/search/search.dart";
 

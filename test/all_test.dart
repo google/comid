@@ -9,13 +9,13 @@ import 'dart:math';
 import 'dart:html' hide Document, Range, Selection;
 
 import 'package:unittest/unittest.dart';
-import 'package:unittest/html_config.dart';
+//import 'package:unittest/html_config.dart';
 import 'package:comid/codemirror.dart';
 import "package:comid/addon/mode/css.dart";
 import "package:comid/addon/mode/xml.dart";
 import "package:comid/addon/mode/dart.dart";
 import "package:comid/addon/comment/comment.dart" as comment;
-import "package:comid/addon/edit/show-hint.dart" as hint;
+import 'package:comid/addon/edit/show_hint.dart' as hint;
 import "package:comid/addon/search/search.dart";
 
 part 'codeeditor_test.dart';
@@ -31,7 +31,7 @@ part 'comment_test.dart';
 part 'search_test.dart';
 
 main() {
-  useHtmlConfiguration();
+//  useHtmlConfiguration();
   document.getElementById("testground").innerHtml = "<form>" +
     "<textarea id=\"code\" name=\"code\"></textarea>" +
     "<input type=submit value=ok name=submit>" +
