@@ -26,5 +26,5 @@ CodeMirror in Dart borrows heavily from the work of Marijn Haverbeke on
 CodeMirror. It is licensed under the MIT open-source license. Please see the 
 [CodeMirror][site] website for more information.
 
-[tracker]: https://code.google.com/p/dart/issues/entry
+[tracker]: https://github.com/google/comid/issues
 [site]: http://codemirror.net/index.html
