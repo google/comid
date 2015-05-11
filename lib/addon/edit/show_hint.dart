@@ -132,9 +132,9 @@ class Completion {
       this.finishUpdate(this.options.hint(this.cm, this.options), first);
     } else {
       var myTick = ++this.tick;
-      this.options.hint(this.cm, (data) {
+      this.options.hint(this.cm, this.options, (data) {
         if (tick == myTick) finishUpdate(data, first);
-      }, this.options);
+      });
     }
   }
 
