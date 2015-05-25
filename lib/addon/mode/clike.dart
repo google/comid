@@ -17,35 +17,45 @@ class ClikeMode extends Mode {
 
   final RegExp isOperatorChar = new RegExp(r'[+\-*&%=<>!?|\/]');
   String curPunc;
+  bool isDefKeyword;
 
   // Parser configuration
   int indentUnit;
   int statementIndentUnit;
   bool dontAlignCalls;
   Set keywords;
+  Set types;
   Set builtin;
   Set blockKeywords;
+  Set defKeywords;
   Set atoms;
   Map hooks;
   bool multiLineStrings;
   bool indentStatements;
+  bool indentSwitch;
+  bool typeFirstDefinitions;
 
   ClikeMode(var config, var parserConfig) {
     Map emptyMapOr(Map val) => val == null ? {} : val;
     Set emptySetOr(Set val) => val == null ? new Set() : val;
     if (config is Map) config = new Options.from(config);
     if (parserConfig is Map) parserConfig = new Config();
+    name = parserConfig.name;
     indentUnit = config.indentUnit;
     statementIndentUnit = parserConfig.statementIndentUnit == null
         ? indentUnit : parserConfig.statementIndentUnit;
     dontAlignCalls = parserConfig.dontAlignCalls;
     keywords = emptySetOr(parserConfig.keywords);
+    types = emptySetOr(parserConfig.types);
     builtin = emptySetOr(parserConfig.builtin);
     blockKeywords = emptySetOr(parserConfig.blockKeywords);
+    defKeywords = emptySetOr(parserConfig.defKeywords);
     atoms = emptySetOr(parserConfig.atoms);
     hooks = emptyMapOr(parserConfig.hooks);
     multiLineStrings = parserConfig.multiLineStrings;
     indentStatements = parserConfig.indentStatements != false;
+    indentSwitch = parserConfig.indentSwitch != false;
+    typeFirstDefinitions = parserConfig.typeFirstDefinitions != false;
     this['fold'] = 'brace';
     this['closeBrackets'] = null; // Use defaults w/o customization.
   }
@@ -86,8 +96,10 @@ class ClikeMode extends Mode {
     var cur = stream.current();
     if (keywords.contains(cur)) {
       if (blockKeywords.contains(cur)) curPunc = "newstatement";
+      if (defKeywords.contains(cur)) isDefKeyword = true;
       return "keyword";
     }
+    if (types.contains(cur)) return "variable-3";
     if (builtin.contains(cur)) {
       if (blockKeywords.contains(cur)) curPunc = "newstatement";
       return "builtin";
@@ -125,6 +137,10 @@ class ClikeMode extends Mode {
     return "comment";
   }
 
+  bool isStatement(context) {
+    return context.type == "statement" || context.type == "switchstatement";
+  }
+
   Context pushContext(ClikeState state, col, String type) {
     var indent = state.indented;
     if (state.context != null && state.context.type == "statement")
@@ -139,6 +155,12 @@ class ClikeMode extends Mode {
     return state.context = state.context.prev;
   }
 
+  bool typeBefore(stream, state) {
+    if (state.prevToken == "variable" || state.prevToken == "variable-3") return true;
+    if (new RegExp(r'/\S[>*\]]\s*$|\*$/').hasMatch(stream.string.substring(0, stream.start))) return true;
+    return false;
+  }
+
   ClikeState startState([basecolumn, x]) {
     var ctx = new Context((basecolumn == null ? 0 : basecolumn) - indentUnit,
         0, "top", false);
@@ -146,7 +168,8 @@ class ClikeMode extends Mode {
       tokenize: null,
       context: ctx,
       indented: 0,
-      startOfLine: true
+      startOfLine: true,
+      prevToken: null
     );
   }
 
@@ -159,27 +182,40 @@ class ClikeMode extends Mode {
     }
     if (stream.eatSpace()) return null;
     curPunc = null;
+    isDefKeyword = false;
     Function tokenizer = state.tokenize == null ? tokenBase : state.tokenize;
     var style = tokenizer(stream, state);
     if (style == "comment" || style == "meta") return style;
     if (ctx.align == null) ctx.align = true;
 
     if ((curPunc == ";" || curPunc == ":" || curPunc == ",") &&
-        ctx.type == "statement") popContext(state);
+        isStatement(ctx)) popContext(state);
     else if (curPunc == "{") pushContext(state, stream.column(), "}");
     else if (curPunc == "[") pushContext(state, stream.column(), "]");
     else if (curPunc == "(") pushContext(state, stream.column(), ")");
     else if (curPunc == "}") {
-      while (ctx.type == "statement") ctx = popContext(state);
+      while (isStatement(ctx)) ctx = popContext(state);
       if (ctx.type == "}") ctx = popContext(state);
-      while (ctx.type == "statement") ctx = popContext(state);
+      while (isStatement(ctx)) ctx = popContext(state);
     }
     else if (curPunc == ctx.type) popContext(state);
     else if (indentStatements &&
              (((ctx.type == "}" || ctx.type == "top") && curPunc != ';') ||
-              (ctx.type == "statement" && curPunc == "newstatement")))
-      pushContext(state, stream.column(), "statement");
+                 (isStatement(ctx) && curPunc == "newstatement"))) {
+      var type = "statement";
+      if (curPunc == "newstatement" && indentSwitch && stream.current() == "switch")
+        type = "switchstatement";
+      pushContext(state, stream.column(), type);
+    }
+
+    if (style == "variable" &&
+        ((state.prevToken == "def" ||
+          (typeFirstDefinitions && typeBefore(stream, state) &&
+           stream.match(new RegExp(r'^\s*\('), false) != null))))
+      style = "def";
+
     state.startOfLine = false;
+    state.prevToken = isDefKeyword ? "def" : style;
     return style;
   }
 
@@ -190,20 +226,28 @@ class ClikeMode extends Mode {
     var ctx = state.context;
     String firstChar = textAfter == null || textAfter.isEmpty
         ? textAfter : textAfter.substring(0,1);
-    if (ctx.type == "statement" && firstChar == "}") ctx = ctx.prev;
-    var closing = firstChar == ctx.type;
-    if (ctx.type == "statement") {
+    if (isStatement(ctx) && firstChar == "}") ctx = ctx.prev;
+    bool closing = firstChar == ctx.type;
+    bool switchBlock = ctx.prev != null && ctx.prev.type == "switchstatement";
+    if (isStatement(ctx)) {
       return ctx.indented + (firstChar == "{" ? 0 : statementIndentUnit);
     } else if (ctx.align != null && ctx.align != false && (!dontAlignCalls || ctx.type != ")")) {
       return ctx.column + (closing ? 0 : 1);
     } else if (ctx.type == ")" && !closing) {
       return ctx.indented + statementIndentUnit;
     } else {
-      return ctx.indented + (closing ? 0 : indentUnit);
+      return ctx.indented + (closing ? 0 : indentUnit) +
+          (!closing && switchBlock &&
+              !new RegExp(r'^(?:case|default)\b').hasMatch(textAfter)
+            ? indentUnit
+            : 0);
     }
   }
 
   String get electricChars => "{}"; // C-like languages have a lot in common...
+  RegExp get electricInput => indentSwitch
+      ? new RegExp(r'^\s*(?:case .*?:|default:|\{|\})$')
+      : new RegExp(r'^\s*[{}]$');
   String get blockCommentStart => "/*";
   String get blockCommentEnd => "*/";
   String get blockCommentContinue => " * ";
@@ -214,6 +258,7 @@ class ClikeMode extends Mode {
   bool get hasIndent => true;
   bool get hasStartState => true;
   bool get hasElectricChars => true;
+  bool get hasElectricInput => true;
 }
 
 Set words(String str) {
@@ -221,10 +266,10 @@ Set words(String str) {
   return new Set.from(words);
 }
 
-var cKeywords = "auto if break int case long char register continue " +
-    "return default short do sizeof double static else struct entry " +
-    "switch extern typedef float union for unsigned goto while enum " +
-    "void const signed volatile";
+var cKeywords = "auto if break case register continue return default do sizeof " +
+  "static else struct switch extern typedef float union for " +
+  "goto while enum const volatile true false";
+var cTypes = "int long char short double float unsigned signed void size_t ptrdiff_t";
 
 dynamic cppHook(StringStream stream, ClikeState state) {
   if (!state.startOfLine) return false;
@@ -242,6 +287,11 @@ dynamic cppHook(StringStream stream, ClikeState state) {
     }
   }
   return "meta";
+}
+
+dynamic pointerHook(_stream, state) {
+  if (state.prevToken == "variable-3") return "variable-3";
+  return false;
 }
 
 dynamic cpp11StringHook(StringStream stream, ClikeState state) {
@@ -318,6 +368,7 @@ void def(dynamic mimes, Config mode) {
     }
   }
   add(mode.keywords);
+  add(mode.types);
   add(mode.builtin);
   add(mode.atoms);
   if (words.length > 0) {
@@ -336,9 +387,14 @@ void _initializeMode() {
   def(["text/x-csrc", "text/x-c", "text/x-chdr"], new Config(
     name: "clike",
     keywords: words(cKeywords),
+    types: words(cTypes + " bool _Complex _Bool float_t double_t intptr_t intmax_t " +
+                 "int8_t int16_t int32_t int64_t uintptr_t uintmax_t uint8_t uint16_t " +
+                 "uint32_t uint64_t"),
     blockKeywords: words("case do else for if switch while struct"),
+    defKeywords: words("struct"),
+    typeFirstDefinitions: true,
     atoms: words("null"),
-    hooks: {"#": cppHook},
+    hooks: {"#": cppHook, "*": pointerHook},
     modeProps: {'fold': ["brace", "include"]}
   ));
 
@@ -350,11 +406,15 @@ void _initializeMode() {
         "private this using const_cast inline public throw virtual delete " +
         "mutable protected wchar_t alignas alignof constexpr decltype nullptr " +
         "noexcept thread_local final static_assert override"),
+    types: words(cTypes + "bool wchar_t"),
     blockKeywords:
         words("catch class do else finally for if struct switch try while"),
+    defKeywords: words("class namespace struct enum union"),
+    typeFirstDefinitions: true,
     atoms: words("true false null"),
     hooks: {
       "#": cppHook,
+      "*": pointerHook,
       "u": cpp11StringHook,
       "U": cpp11StringHook,
       "L": cpp11StringHook,
@@ -365,14 +425,16 @@ void _initializeMode() {
 
   def("text/x-java", new Config(
     name: "clike",
-    keywords: words(
-        "abstract assert boolean break byte case catch char class const " +
-        "continue default do double else enum extends final finally float " +
-        "for goto if implements import instanceof int interface long native " +
-        "new package private protected public return short static strictfp " +
-        "super switch synchronized this throw throws transient try void " +
-        "volatile while"),
+    keywords: words("abstract assert break case catch class const continue default " +
+                    "do else enum extends final finally float for goto if implements import " +
+                    "instanceof interface native new package private protected public " +
+                    "return static strictfp super switch synchronized this throw throws transient " +
+                    "try volatile while"),
+    types: words("byte short int long float double boolean char void Boolean Byte Character Double Float " +
+                 "Integer Long Number Object Short String StringBuffer StringBuilder Void"),
     blockKeywords: words("catch class do else finally for if switch try while"),
+    defKeywords: words("class interface package enum"),
+    typeFirstDefinitions: true,
     atoms: words("true false null"),
     hooks: {
       "@": (StringStream stream, ClikeState state) {
@@ -385,22 +447,20 @@ void _initializeMode() {
 
   def("text/x-csharp", new Config(
     name: "clike",
-    keywords: words(
-        "abstract as base break case catch checked class const continue" +
-        " default delegate do else enum event explicit extern finally fixed" +
-        " for foreach goto if implicit in interface internal is lock" +
-        " namespace new operator out override params private protected public" +
-        " readonly ref return sealed sizeof stackalloc static struct switch" +
-        " this throw try typeof unchecked unsafe using virtual void volatile" +
-        " while add alias ascending descending dynamic from get global group" +
-        " into join let orderby partial remove select set value var yield"),
-    blockKeywords: words(
-        "catch class do else finally for foreach if struct switch try while"),
-    builtin: words(
-        "Boolean Byte Char DateTime DateTimeOffset Decimal Double" +
-        " Guid Int16 Int32 Int64 Object SByte Single String TimeSpan UInt16" +
-        " UInt32 UInt64 bool byte char decimal double short int long object"  +
-        " sbyte float string ushort uint ulong"),
+    keywords: words("abstract as async await base break case catch checked class const continue" +
+                    " default delegate do else enum event explicit extern finally fixed for" +
+                    " foreach goto if implicit in interface internal is lock namespace new" +
+                    " operator out override params private protected public readonly ref return sealed" +
+                    " sizeof stackalloc static struct switch this throw try typeof unchecked" +
+                    " unsafe using virtual void volatile while add alias ascending descending dynamic from get" +
+                    " global group into join let orderby partial remove select set value var yield"),
+    types: words("Action Boolean Byte Char DateTime DateTimeOffset Decimal Double Func" +
+                 " Guid Int16 Int32 Int64 Object SByte Single String Task TimeSpan UInt16 UInt32" +
+                 " UInt64 bool byte char decimal double short int long object"  +
+                 " sbyte float string ushort uint ulong"),
+    blockKeywords: words("catch class do else finally for foreach if struct switch try while"),
+    defKeywords: words("class interface namespace struct var"),
+    typeFirstDefinitions: true,
     atoms: words("true false null"),
     hooks: {
       "@": (StringStream stream, ClikeState state) {
@@ -415,36 +475,40 @@ void _initializeMode() {
   ));
 
   def("text/x-scala", new Config(
-    name: "clike",
-    keywords: words(
+      name: 'clike',
+      keywords: words(
 
-      /* scala */
-      "abstract case catch class def do else extends false final finally for forSome if " +
-      "implicit import lazy match new null object override package private protected return " +
-      "sealed super this throw trait try trye type val var while with yield _ : = => <- <: " +
-      "<% >: # @ " +
+        /* scala */
+        "abstract case catch class def do else extends false final finally for forSome if " +
+        "implicit import lazy match new null object override package private protected return " +
+        "sealed super this throw trait try type val var while with yield _ : = => <- <: " +
+        "<% >: # @ " +
 
-      /* package scala */
-      "assert assume require print println printf readLine readBoolean readByte readShort " +
-      "readChar readInt readLong readFloat readDouble " +
+        /* package scala */
+        "assert assume require print println printf readLine readBoolean readByte readShort " +
+        "readChar readInt readLong readFloat readDouble " +
 
-      "AnyVal App Application Array BufferedIterator BigDecimal BigInt Char Console Either " +
-      "Enumeration Equiv Error Exception Fractional Function IndexedSeq Integral Iterable " +
-      "Iterator List Map Numeric Nil NotNull Option Ordered Ordering PartialFunction PartialOrdering " +
-      "Product Proxy Range Responder Seq Serializable Set Specializable Stream StringBuilder " +
-      "StringContext Symbol Throwable Traversable TraversableOnce Tuple Unit Vector :: #:: " +
+        ":: #:: "
+      ),
+      types: words(
+        "AnyVal App Application Array BufferedIterator BigDecimal BigInt Char Console Either " +
+        "Enumeration Equiv Error Exception Fractional Function IndexedSeq Integral Iterable " +
+        "Iterator List Map Numeric Nil NotNull Option Ordered Ordering PartialFunction PartialOrdering " +
+        "Product Proxy Range Responder Seq Serializable Set Specializable Stream StringBuilder " +
+        "StringContext Symbol Throwable Traversable TraversableOnce Tuple Unit Vector " +
 
-      /* package java.lang */
-      "Boolean Byte Character CharSequence Class ClassLoader Cloneable Comparable " +
-      "Compiler Double Exception Float Integer Long Math Number Object Package Pair Process " +
-      "Runtime Runnable SecurityManager Short StackTraceElement StrictMath String " +
-      "StringBuffer System Thread ThreadGroup ThreadLocal Throwable Triple Void"
-    ),
-    multiLineStrings: true,
-    blockKeywords: words(
-        "catch class do else finally for forSome if match switch try while"),
-    atoms: words("true false null"),
-    indentStatements: false,
+        /* package java.lang */
+        "Boolean Byte Character CharSequence Class ClassLoader Cloneable Comparable " +
+        "Compiler Double Exception Float Integer Long Math Number Object Package Pair Process " +
+        "Runtime Runnable SecurityManager Short StackTraceElement StrictMath String " +
+        "StringBuffer System Thread ThreadGroup ThreadLocal Throwable Triple Void"
+      ),
+      multiLineStrings: true,
+      blockKeywords: words("catch class do else finally for forSome if match switch try while"),
+      defKeywords: words("class def object package trait type val var"),
+      atoms: words("true false null"),
+      indentStatements: false,
+      indentSwitch: false,
     hooks: {
       "@": (StringStream stream, ClikeState state) {
         stream.eatWhile(new RegExp(r'[\w\$_]'));
@@ -465,15 +529,15 @@ void _initializeMode() {
 
   def(["x-shader/x-vertex", "x-shader/x-fragment"], new Config(
     name: "clike",
-    keywords: words("float int bool void " +
-                    "vec2 vec3 vec4 ivec2 ivec3 ivec4 bvec2 bvec3 bvec4 " +
-                    "mat2 mat3 mat4 " +
-                    "sampler1D sampler2D sampler3D samplerCube " +
+    keywords: words("sampler1D sampler2D sampler3D samplerCube " +
                     "sampler1DShadow sampler2DShadow " +
                     "const attribute uniform varying " +
                     "break continue discard return " +
                     "for while do if else struct " +
                     "in out inout"),
+    types: words("float int bool void " +
+                 "vec2 vec3 vec4 ivec2 ivec3 ivec4 bvec2 bvec3 bvec4 " +
+                 "mat2 mat3 mat4"),
     blockKeywords: words("for while do if else struct"),
     builtin: words("radians degrees sin cos tan asin acos atan " +
                     "pow exp log exp2 sqrt inversesqrt " +
@@ -517,6 +581,7 @@ void _initializeMode() {
                 "gl_MaxVertexTextureImageUnits gl_MaxTextureImageUnits " +
                 "gl_MaxFragmentUniformComponents gl_MaxCombineTextureImageUnits " +
                 "gl_MaxDrawBuffers"),
+    indentSwitch: false,
     hooks: {"#": cppHook},
     modeProps: {'fold': ["brace", "include"]}
   ));
@@ -526,6 +591,7 @@ void _initializeMode() {
     keywords: words(cKeywords + "as atomic async call command component components configuration event generic " +
                     "implementation includes interface module new norace nx_struct nx_union post provides " +
                     "signal task uses abstract extends"),
+    types: words(cTypes),
     blockKeywords: words("case do else for if switch while struct"),
     atoms: words("null"),
     hooks: {"#": cppHook},
@@ -536,6 +602,7 @@ void _initializeMode() {
     name: "clike",
     keywords: words(cKeywords + "inline restrict _Bool _Complex _Imaginery BOOL Class bycopy byref id IMP in " +
                     "inout nil oneway out Protocol SEL self super atomic nonatomic retain copy readwrite readonly"),
+                    types: words(cTypes),
     atoms: words("YES NO NULL NILL ON OFF"),
     hooks: {
       "@": (StringStream stream, ClikeState state) {
@@ -569,8 +636,9 @@ class ClikeState extends ModeState {
   Function tokenize;
   bool startOfLine;
   String cpp11RawStringDelim;
+  String prevToken;
 
-  ClikeState({this.indented, this.tokenize, this.context, this.startOfLine});
+  ClikeState({this.indented, this.tokenize, this.context, this.startOfLine, this.prevToken});
 
   ClikeState newInstance() {
     return new ClikeState();
@@ -582,6 +650,7 @@ class ClikeState extends ModeState {
     tokenize = old.tokenize;
     startOfLine = old.startOfLine;
     cpp11RawStringDelim = old.cpp11RawStringDelim;
+    prevToken = old.prevToken;
   }
 
   String toString() {
@@ -597,21 +666,26 @@ class ClikeState extends ModeState {
 class Config {
   final String name;
   final Set keywords;
+  final Set types;
   final Set blockKeywords;
+  final Set defKeywords;
   final Set atoms;
   final Set builtin;
   final Map hooks;
   final Map modeProps;
   final bool multiLineStrings;
   final bool indentStatements;
+  final bool indentSwitch;
   final bool dontAlignCalls;
+  final bool typeFirstDefinitions;
   final int statementIndentUnit;
   String helperType;
 
-  Config({this.name, this.keywords, this.blockKeywords, this.atoms,
-    this.hooks, this.modeProps, this.multiLineStrings: false,
+  Config({this.name, this.keywords, this.types, this.blockKeywords, this.atoms,
+    this.defKeywords, this.hooks, this.modeProps, this.multiLineStrings: false,
     this.indentStatements: true, this.builtin, this.dontAlignCalls: false,
-    this.statementIndentUnit});
+    this.indentSwitch: true, this.statementIndentUnit,
+    this.typeFirstDefinitions: false});
 
   dynamic operator [](String val) {
     switch(val) {

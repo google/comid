@@ -665,8 +665,7 @@ class Displ implements Display {
   void postUpdateDisplay(CodeEditor cm, DisplayUpdate update) {
     var viewport = update.viewport;
     for (var first = true;; first = false) {
-      if (first && cm.options.lineWrapping && update.oldDisplayWidth != displayWidth()) {
-      } else {
+      if (!first || !cm.options.lineWrapping || update.oldDisplayWidth == displayWidth()) {
         // Clip forced viewport to actual scrollable area.
         if (viewport != null && viewport.top != -1)
           viewport = new Viewport(min(cm.doc.height + paddingVert() - displayHeight(), viewport.top));

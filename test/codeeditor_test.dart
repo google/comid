@@ -704,7 +704,7 @@ editorTest() {
         expect(box.bottom <= outer.bottom, isTrue, reason: msg + " (bottom)");
       }
       addDoc(editor, 200, 200);
-      test(199, 199, "bottom right");
+      test(199, 199, "bottom right"); // TODO Fix failure
       test(0, 0, "top left");
       test(100, 100, "center");
       test(199, 0, "bottom left");
@@ -1248,7 +1248,7 @@ editorTest() {
     test('clickTab', () {
       editor = makeEditor({'value': "\t\n\n", 'lineWrapping': true, 'tabSize': 8});
       var p0 = editor.charCoords(new Pos(0, 0));
-      expect(editor.coordsChar(new Loc(p0.top + 5, p0.left + 5)), new Pos(0, 0));
+      expect(editor.coordsChar(new Loc(p0.top + 5, p0.left + 5)), new Pos(0, 0)); // TODO Fix failure
       expect(editor.coordsChar(new Loc(p0.top + 5, p0.right - 5)), new Pos(0, 1));
     });
 
@@ -1421,7 +1421,7 @@ editorTest() {
       editor.execCommand("goLineUp");
       expect(editor.getCursor(), new Pos(1, 12));
       editor.execCommand("goPageDown");
-      expect(editor.getCursor(), new Pos(5, 0));
+      expect(editor.getCursor(), new Pos(5, 0)); // TODO Fix failure
       editor.execCommand("goPageDown"); editor.execCommand("goLineDown");
       expect(editor.getCursor(), new Pos(5, 0));
       editor.execCommand("goPageUp");
@@ -1530,7 +1530,7 @@ editorTest() {
       var cur = byClassName(wrap, "CodeMirror-cursor")[0];
       var wrapper = wrap.getBoundingClientRect();
       var cursor = cur.getBoundingClientRect();
-      expect(wrapper.right > cursor.left, isTrue);
+      expect(wrapper.right > cursor.left, isTrue); // TODO Fix failure
     });
 
     test('lineWidgets', () {

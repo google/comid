@@ -81,7 +81,7 @@ class SimpleMode extends Mode {
         if (m && m[0]) {
           if (rule.data.dedent && rule.data.dedentIfLineStart != false) pos--;
           if (rule.next || rule.push) rules = states[rule.next || rule.push];
-          textAfter = textAfter.slice(m[0].length);
+          textAfter = textAfter.substring(m[0].length);
           continue scan;
         }
       }

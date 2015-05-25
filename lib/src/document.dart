@@ -1410,7 +1410,7 @@ class Document extends BranchChunk with EventManager implements Doc {
   // Get the bidi ordering for the given line (and cache it). Returns
   // false for lines that are fully left-to-right, and an array of
   // BidiSpan objects otherwise.
-  getOrder(line) {
+  dynamic getOrder(line) {
     var order = line.order;
     if (order == null)
       order = line.order = cm.bidiOrdering(line.text);
@@ -1419,7 +1419,7 @@ class Document extends BranchChunk with EventManager implements Doc {
 
   // Find the top change event in the history. Pop off selection
   // events that are in the way.
-  lastChangeEvent(HistoryRecord hist, [bool force = false]) {
+  HistoryItem lastChangeEvent(HistoryRecord hist, [bool force = false]) {
     // TODO Move to HistoryRecord.
     if (force) {
       clearSelectionEvents(hist.done);
@@ -1430,6 +1430,7 @@ class Document extends BranchChunk with EventManager implements Doc {
       hist.done.removeLast();
       return lst(hist.done);
     }
+    return null;
   }
 
   // Register a change in the history. Merges changes that are within

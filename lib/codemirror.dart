@@ -233,10 +233,11 @@ abstract class CodeMirror implements EventManager {
   void triggerOnKeyPress(e);
   void triggerOnKeyUp(e);
   void execCommand(String cmd);
+  void triggerElectric(String text);
   Pos findPosH(Pos from, int amount, String unit, [bool visually]);
   void moveH(dir, unit);
   void deleteH(dir, unit);
-  PosClipped findPosV(Pos from, int amount, String unit, [goalColumn]);
+  Pos findPosV(Pos from, int amount, String unit, [goalColumn]);
   void moveV(dir, unit);
   Range findWordAt(PosWithInfo pos);
   void toggleOverwrite([bool value]);
