@@ -34,7 +34,7 @@ scrollTest() {
 
     test('movedown_resize', () {
       editor = makeEditor();
-      testMovedownResize(editor, false);
+      testMovedownResize(editor, false); // TODO Fix failure
     });
 
     test('movedown_hscroll_resize', () {

@@ -85,6 +85,7 @@ class Completion {
     tick = null;
     cm.off(cm, "cursorActivity", activityFunc);
 
+    if (widget != null && data != null) cm.signal(data, "close");
     if (widget != null) {
       widget.close();
     }
@@ -126,13 +127,13 @@ class Completion {
   }
 
   update([first]) {
-    if (this.tick == null) return;
-    if (this.data != null) cm.signal(cm, this.data, "update");
-    if (!this.options.async) {
-      this.finishUpdate(this.options.hint(this.cm, this.options), first);
+    if (tick == null) return;
+    if (data != null) cm.signal(data, "update");
+    if (!options.async) {
+      finishUpdate(options.hint(cm, options), first);
     } else {
-      var myTick = ++this.tick;
-      this.options.hint(this.cm, this.options, (data) {
+      var myTick = ++tick;
+      options.hint(cm, options, (data) {
         if (tick == myTick) finishUpdate(data, first);
       });
     }
@@ -141,11 +142,18 @@ class Completion {
   finishUpdate(data, first) {
     this.data = data;
 
-    var picked = (this.widget != null && this.widget.picked) || (first && this.options.completeSingle);
-    if (this.widget != null) this.widget.close();
+    var picked = (widget != null && widget.picked) || (first && options.completeSingle);
+    if (widget != null) widget.close();
     if (data != null && data.list.length != 0) {
-      if (picked && data.list.length == 1) this.pick(data, 0);
-      else this.widget = new Widget(this, data);
+      if (picked && data.list.length == 1) {
+        pick(data, 0);
+      } else {
+        widget = new Widget(this, data);
+        cm.signal(data, "shown");
+      }
+
+      if (picked && data.list.length == 1) pick(data, 0);
+      else widget = new Widget(this, data);
     }
   }
 

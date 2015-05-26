@@ -85,32 +85,42 @@ abstract class InputStyle extends Object with EventManager {
             : origin);
       doc.makeChange(changeEvent);
       signalLater(cm, "inputRead", cm, changeEvent);
-      // When an 'electric' character is inserted, immediately trigger a reindent
-      if (inserted != null && !cm.state.pasteIncoming && cm.options.electricChars &&
-          cm.options.smartIndent && range.head.char < 100 &&
-          (i == 0 || sel.ranges[i - 1].head.line != range.head.line)) {
-        var mode = cm.getModeAt(range.head);
-        var end = cm.changeEnd(changeEvent);
-        var indented = false;
-        if (mode.electricChars != null) {
-          for (var j = 0; j < mode.electricChars.length; j++) {
-            if (inserted.indexOf(mode.electricChars.substring(j,j+1)) > -1) {
-              indented = cm.indentLine(end.line, "smart");
-              break;
-            }
-          }
-        } else if (mode.electricInput != null) {
-          if (mode.electricInput.hasMatch(doc._getLine(end.line).text.substring(0, end.char))) {
-            indented = cm.indentLine(end.line, "smart");
-          }
-        }
-        if (indented) signalLater(cm, "electricInput", cm, end.line);
-      }
     }
+    if (inserted != null && !cm.state.pasteIncoming)
+      triggerElectric(cm, inserted);
+
     cm.ensureCursorVisible();
     cm.curOp.updateInput = updateInput;
     cm.curOp.typing = true;
     cm.state.pasteIncoming = cm.state.cutIncoming = false;
+  }
+
+  void triggerElectric(CodeEditor cm, String inserted) {
+    // When an 'electric' character is inserted, immediately trigger a reindent
+    if (!cm.options.electricChars || !cm.options.smartIndent) return;
+    var sel = cm.doc.sel;
+
+    for (var i = sel.ranges.length - 1; i >= 0; i--) {
+      var range = sel.ranges[i];
+      if (range.head.char > 100 ||
+          (i != 0 && sel.ranges[i - 1].head.line == range.head.line)) {
+        continue;
+      }
+      var mode = cm.getModeAt(range.head);
+      var indented = false;
+      if (mode.electricChars != null) {
+        for (var j = 0; j < mode.electricChars.length; j++)
+          if (inserted.indexOf(mode.electricChars.substring(j, j+1)) > -1) {
+            indented = cm.indentLine(range.head.line, "smart");
+            break;
+          }
+      } else if (mode.electricInput != null) {
+        if (mode.electricInput.hasMatch(cm.doc._getLine(range.head.line).text
+                                        .substring(0, range.head.char)))
+          indented = cm.indentLine(range.head.line, "smart");
+      }
+      if (indented) signalLater(cm, "electricInput", cm, range.head.line);
+    }
   }
 
   CopyableRanges copyableRanges(CodeEditor cm) {
@@ -894,12 +904,12 @@ CoverNode posToDOM(CodeEditor cm, Pos pos) {
   var line = cm.doc._getLine(pos.line);
   var info = cm.doc.mapFromLineView(view, line, pos.line);
 
-//  var order = cm.doc.getOrder(line), side = "left";
-//  if (order != null && order != false) {
-//    var partPos = cm.getBidiPartAt(order, pos.char);
-//    side = partPos % 2 != 0 ? "right" : "left";
-//  }
-  var result = cm.doc.nodeAndOffsetInLineMap(info.map, pos.char, "left");
+  var order = cm.doc.getOrder(line), side = "left";
+  if (order != null && order != false) {
+    var partPos = cm.getBidiPartAt(order, pos.char);
+    side = partPos % 2 != 0 ? "right" : "left";
+  }
+  var result = cm.doc.nodeAndOffsetInLineMap(info.map, pos.char, side);
   result.offset = result.collapse == "right" ? result.end : result.start;
   return result;
 }

@@ -31,6 +31,12 @@ Android (JS): 4 failures, "Scrolling, movedown_hscroll_fixed",
   "Scrolling, movedown_hscroll_resize", "Scrolling, moveright_scroll",
   "Scrolling, moveright_scroll_wrap"
 
+Test update, version 5.3.1
+Dartium (native): all pass
+Chrome (JS): all pass
+Using the new test:test framework causes some failures.
+These have been noted in the test code.
+
 TODO test
 hint/xml-hint.js
 hint/html-hint.js

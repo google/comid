@@ -136,8 +136,8 @@ zeroWidthElement(Element measure) {
 }
 
 // Feature-detect IE's crummy client rect reporting for bidi text
-var _badBidiRects;
-hasBadBidiRects(Element measure) {
+bool _badBidiRects;
+bool hasBadBidiRects(Element measure) {
   if (_badBidiRects != null) return _badBidiRects;
   var txt = removeChildrenAndAdd(measure, new Text("A\u062eA"));
   var r0 = range(txt, 0, 1).getBoundingClientRect();

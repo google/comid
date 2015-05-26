@@ -10,7 +10,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
    * triple of integers "major.minor.patch", where patch is zero for releases,
    * and something else (usually one) for dev snapshots.
    */
-  static const version = "5.2.1";
+  static const version = "5.3.1";
 
 //  static Options defaults = new Options();
   static Map<String, CommandHandler> defaultCommands = {};
@@ -464,6 +464,10 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     }
   }
 
+  void triggerElectric(String text) {
+    methodOp(() { display.input.triggerElectric(this, text); })();
+  }
+
   Pos findPosH(Pos from, int amount, String unit, [bool visually = false]) {
     // unit is 'car', 'column' or 'word'
     var dir = 1;
@@ -562,7 +566,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
     })();
   }
 
-  PosClipped findPosV(Pos from, int amount, String unit, [goalColumn]) {
+  Pos findPosV(Pos from, int amount, String unit, [goalColumn]) {
     // unit may be 'line' or 'page'
     var dir = 1, x = goalColumn;
     if (amount < 0) { dir = -1; amount = -amount; }
@@ -2676,7 +2680,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
           "height: ${coords.bottom - coords.top + display.scrollGap() + display.barHeight}px; " +
           "left: ${coords.left}px; width: 2px;");
       display.lineSpace.append(scrollNode);
-      scrollNode.scrollIntoView(doScroll);
+      scrollNode.scrollIntoView(doScroll ? ScrollAlignment.TOP : ScrollAlignment.BOTTOM);
       scrollNode.remove();
     }
   }
@@ -2858,7 +2862,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
       for (var i = 0; i < keys.length; i++) {
         var val, name;
         if (i == keys.length - 1) {
-          name = keyname;
+          name = keys.join(" ");
           val = value;
         } else {
           name = keys.sublist(0, i + 1).join(" ");
@@ -3216,7 +3220,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
       builder.addToken = builder.buildToken;
       // Optionally wire in some hacks into the token-rendering
       // algorithm, to deal with browser quirks.
-      if (hasBadBidiRects(display.measure) && (order = doc.getOrder(line)))
+      if (hasBadBidiRects(display.measure) && (order = doc.getOrder(line)) != false)
         builder.addToken = builder.buildTokenBadBidi(builder.addToken, order);
       builder.map = [];
       var allowFrontierUpdate = lineView != display.externalMeasured ? line.lineNo() : -1;
@@ -3412,7 +3416,7 @@ class CodeEditor extends Object with EventManager implements CodeMirror {
   // Returns null if characters are ordered as they appear
   // (left-to-right), or an array of sections ({from, to, level}
   // BidiSpan objects) in the order in which they occur visually.
-  var bidiOrdering = (() {
+  Function bidiOrdering = (() {
     // Character types for codepoints 0 to 0xff
     var lowTypes = "bbbbbbbbbtstwsbbbbbbbbbbbbbbssstwNN%%%NNNNNN,N,N1111111111NNNNNNNLLLLLLLLLLLLLLLLLLLLLLLLLLNNNNNNLLLLLLLLLLLLLLLLLLLLLLLLLLNNNNbbbbbbsbbbbbbbbbbbbbbbbbbbbbbbbbb,N%%%%NNNNLNNNNN%%11NLNNN1LNNNNNLLLLLLLLLLLLLLLLLLLLLLLNLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLN";
     // Character types for codepoints 0x600 to 0x6ff
@@ -4259,9 +4263,9 @@ class LineBuilder {
           if (part.to > start && part.from <= start) break;
         }
         if (part.to >= end) return inner(text, style, startStyle, endStyle, title, css);
-        inner(text.slice(0, part.to - start), style, startStyle, null, title, css);
+        inner(text.substring(0, part.to - start), style, startStyle, null, title, css);
         startStyle = null;
-        text = text.slice(part.to - start);
+        text = text.substring(part.to - start);
         start = part.to;
       }
     };

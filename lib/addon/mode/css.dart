@@ -414,7 +414,7 @@ class CssMode extends Mode {
   interpolation(String type, StringStream stream, CssState state) {
     if (type == "}") return popContext(state);
     if (type == "{" || type == ";") return popAndPass(type, stream, state);
-    if (type != "variable") override = "error";
+    if (type != "variable" && type != "(" && type != ")") override = "error";
     return "interpolation";
   }
 }
@@ -441,7 +441,6 @@ class CssState extends ModeState {
   String toString() {
     var tok;
     if (tokenize == tokenCComment) tok = "tokenCComment";
-    else if (tokenize == tokenSGMLComment) tok = "tokenSGMLComment";
     else tok = "<method>";
     return "CssState($state, $tok, $stateArg, $context)";
   }
@@ -738,11 +737,6 @@ _initialize() {
     colorKeywords: colorKeywords,
     valueKeywords: valueKeywords,
     tokenHooks: {
-      "<": (StringStream stream, state) {
-        if (stream.match("!--") == null) return false;
-        state.tokenize = tokenSGMLComment;
-        return tokenSGMLComment(stream, state);
-      },
       "/": (StringStream stream, state) {
         if (stream.eat("*") == null) return false;
         state.tokenize = tokenCComment;
@@ -847,16 +841,6 @@ tokenCComment(StringStream stream, state) {
       break;
     }
     maybeEnd = (ch == "*");
-  }
-  return ["comment", "comment"];
-}
-
-tokenSGMLComment(StringStream stream, state) {
-  if (stream.skipTo("-->")) {
-    stream.match("-->");
-    state.tokenize = null;
-  } else {
-    stream.skipToEnd();
   }
   return ["comment", "comment"];
 }

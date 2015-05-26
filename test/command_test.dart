@@ -63,7 +63,7 @@ commandTest() {
 
     test('findPosV', () {
       editor = makeEditor({'value': "line1\nlong long line2\nline3\n\nline5\n"});
-      PosClipped p = editor.findPosV(new Pos(0, 1), 1, "page");
+      Pos p = editor.findPosV(new Pos(0, 1), 1, "page");
       expect(p.line, 5);
       expect(p.char, 0);
       expect(p.hitSide, isTrue);
